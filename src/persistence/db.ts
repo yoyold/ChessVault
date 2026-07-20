@@ -1,6 +1,28 @@
 import Dexie, { type EntityTable, type Table } from "dexie";
-import type { GamePositionRecord, GameRecord } from "@/core/domain/game";
+import type {
+  GameContentRecord,
+  GamePositionRecord,
+  GameRecord,
+} from "@/core/domain/game";
 import type { PositionRecord } from "@/core/domain/position";
+
+/**
+ * Records are moved between tables in bounded chunks during migration.
+ *
+ * A migration must run on a database holding tens of thousands of games
+ * without exhausting memory, which rules out reading the table into an array.
+ */
+const MIGRATION_CHUNK_SIZE = 500;
+
+/**
+ * Shape of a game record as version 1 stored it: text inline, and a null date
+ * where the PGN gave none.
+ */
+interface GameRecordV1 extends Omit<GameRecord, "dateIso"> {
+  pgn: string;
+  headers: Record<string, string>;
+  dateIso: string | null;
+}
 
 /**
  * The IndexedDB database backing the entire application.
@@ -9,15 +31,20 @@ import type { PositionRecord } from "@/core/domain/position";
  * `version(n)` block, add `version(n+1)`; only indexed properties belong in the
  * schema string; every index must answer a query the app actually makes.
  */
-class ChessVaultDatabase extends Dexie {
+export class ChessVaultDatabase extends Dexie {
   games!: EntityTable<GameRecord, "id">;
+  gameContents!: EntityTable<GameContentRecord, "gameId">;
   positions!: EntityTable<PositionRecord, "key">;
 
   /** Compound primary key `[gameId+ply]`, so the key type is a tuple. */
   gamePositions!: Table<GamePositionRecord, [number, number]>;
 
-  constructor() {
-    super("chessvault");
+  /**
+   * @param name Overridable so migration tests can open an isolated database
+   *   under a throwaway name. Application code always uses the default.
+   */
+  constructor(name = "chessvault") {
+    super(name);
 
     /**
      * Version 1 — games and the position database.
@@ -64,6 +91,77 @@ class ChessVaultDatabase extends Dexie {
       // `key` is the index that answers "which games reached this position?".
       gamePositions: "[gameId+ply], gameId, key",
     });
+
+    /**
+     * Version 2 — move PGN text and headers out of `games`, and replace null
+     * dates with an empty string.
+     *
+     * IndexedDB drives a query from a single index, so any combination of
+     * filters leaves Dexie deserialising candidate records to evaluate the
+     * remaining predicates. With multi-kilobyte PGN text in the row, every
+     * filter change paid to deserialise text the list never shows. Splitting it
+     * out keeps the filtered table small and the list responsive at the game
+     * counts this project targets.
+     *
+     * `gameContents` needs no secondary indexes: it is only ever read by
+     * primary key, when a single game is opened.
+     *
+     * The date rewrite fixes a correctness bug rather than a performance one:
+     * IndexedDB does not index null, so games imported without a usable date
+     * were absent from the date index and disappeared from the list entirely
+     * when browsing by date. See GameRecord.dateIso.
+     */
+    this.version(2)
+      .stores({ gameContents: "gameId" })
+      .upgrade(async (tx) => {
+        const games = tx.table<GameRecordV1, number>("games");
+        const contents = tx.table<GameContentRecord, number>("gameContents");
+
+        // Paged by primary key rather than by offset: `offset(n)` makes
+        // IndexedDB walk from the start of the table on each call, which is
+        // quadratic over the whole table. Seeking past the last id read keeps
+        // it linear. Chunking also bounds memory, so this survives a database
+        // far larger than fits in one array.
+        //
+        // The dominant cost is not the paging but rewriting `games`, since
+        // every updated row means deleting and reinserting its index entries
+        // across fifteen indexes. Measured against real IndexedDB that is
+        // roughly 250ms per thousand games, so a very large collection spends
+        // some seconds inside this upgrade on first open after the update.
+        // (Under fake-indexeddb in tests it is about twenty times slower, which
+        // is a property of that implementation rather than of this code.)
+        let lastId = 0;
+
+        for (;;) {
+          const batch = await games
+            .where(":id")
+            .above(lastId)
+            .limit(MIGRATION_CHUNK_SIZE)
+            .toArray();
+
+          if (batch.length === 0) break;
+
+          lastId = batch[batch.length - 1].id as number;
+
+          await contents.bulkPut(
+            batch.map((game) => ({
+              gameId: game.id as number,
+              pgn: game.pgn,
+              headers: game.headers,
+            })),
+          );
+
+          await games.bulkPut(
+            batch.map((game) => {
+              const metadata: Partial<GameRecordV1> = { ...game };
+              delete metadata.pgn;
+              delete metadata.headers;
+              metadata.dateIso = game.dateIso ?? "";
+              return metadata as GameRecordV1;
+            }),
+          );
+        }
+      });
   }
 }
 
@@ -77,5 +175,3 @@ class ChessVaultDatabase extends Dexie {
  * effect or event handler), never during render of a prerendered page.
  */
 export const db = new ChessVaultDatabase();
-
-export type { ChessVaultDatabase };

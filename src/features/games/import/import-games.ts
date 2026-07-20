@@ -85,8 +85,11 @@ export async function importPgn(
 
       try {
         const parsed = parseGame(pgn);
+        const projected = projectGame(pgn, parsed, { ownerNames, now });
+
         batch.push({
-          record: projectGame(pgn, parsed, { ownerNames, now }),
+          record: projected.record,
+          content: projected.content,
           positions: parsed.positions,
         });
       } catch (error) {

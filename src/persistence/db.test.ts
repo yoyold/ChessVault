@@ -7,9 +7,7 @@ const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 function makeGame(overrides: Partial<GameRecord> = {}): GameRecord {
   return {
-    pgn: '[Event "Club"]\n\n1. e4 e5 *',
     contentHash: "0000000000000001",
-    headers: { Event: "Club" },
     white: "Carlsen, Magnus",
     black: "Nepomniachtchi, Ian",
     result: "1-0",
@@ -34,13 +32,19 @@ function makeGame(overrides: Partial<GameRecord> = {}): GameRecord {
 
 beforeEach(async () => {
   await db.open();
-  await Promise.all([db.games.clear(), db.positions.clear(), db.gamePositions.clear()]);
+  await Promise.all([
+    db.games.clear(),
+    db.gameContents.clear(),
+    db.positions.clear(),
+    db.gamePositions.clear(),
+  ]);
 });
 
 describe("schema", () => {
-  it("opens at version 1 with the expected tables", async () => {
-    expect(db.verno).toBe(1);
+  it("opens at the current version with the expected tables", async () => {
+    expect(db.verno).toBe(2);
     expect(db.tables.map((t) => t.name).sort()).toEqual([
+      "gameContents",
       "gamePositions",
       "games",
       "positions",

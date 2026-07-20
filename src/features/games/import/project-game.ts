@@ -1,4 +1,8 @@
-import type { GameRecord, GameResult } from "@/core/domain/game";
+import type {
+  GameContentRecord,
+  GameRecord,
+  GameResult,
+} from "@/core/domain/game";
 import type { ParsedGame } from "@/core/chess/pgn/parse-game";
 import { gameContentHash } from "@/core/chess/pgn/content-hash";
 import { normalisePgnDate } from "@/core/chess/pgn/pgn-date";
@@ -37,18 +41,26 @@ function headerOrNull(headers: Record<string, string>, key: string): string | nu
   return value && value !== "?" ? value : null;
 }
 
+export interface ProjectedGame {
+  /** Indexed metadata, written to the table the game list filters over. */
+  record: GameRecord;
+  /** Full text, written to the companion table. The id is assigned on insert. */
+  content: Omit<GameContentRecord, "gameId">;
+}
+
 /**
- * Build the indexed, queryable record for a parsed game.
+ * Build the stored representation of a parsed game.
  *
- * Every field here is a projection of the PGN, denormalised so the game list
- * can filter and sort without reparsing. The PGN remains the source of truth;
- * if the two ever disagree, the projection is what gets rebuilt.
+ * The result is split across two tables: metadata the list filters and sorts
+ * by, and the PGN text only the detail view reads. See {@link GameRecord} for
+ * why. The PGN remains the source of truth; if the two ever disagree, the
+ * projection is what gets rebuilt.
  */
 export function projectGame(
   pgn: string,
   parsed: ParsedGame,
   options: ProjectGameOptions,
-): GameRecord {
+): ProjectedGame {
   const { headers } = parsed;
 
   const white = headerOrNull(headers, "White") ?? "";
@@ -64,26 +76,29 @@ export function projectGame(
   else if (matchesAnyPlayer(black, options.ownerNames)) playerColor = "black";
 
   return {
-    pgn,
-    contentHash: gameContentHash(pgn),
-    headers,
-    white,
-    black,
-    result: normaliseResult(headers.Result),
-    dateIso: normalisePgnDate(headers.Date),
-    event,
-    site,
-    round: headerOrNull(headers, "Round"),
-    eco: headerOrNull(headers, "ECO"),
-    opening,
-    timeControl: headerOrNull(headers, "TimeControl"),
-    playerColor,
-    tags: [],
-    notes: "",
-    plyCount: parsed.plyCount,
-    finalFen: parsed.finalFen,
-    searchTokens: buildSearchTokens(white, black, event, site, opening),
-    importedAt: options.now,
-    updatedAt: options.now,
+    record: {
+      contentHash: gameContentHash(pgn),
+      white,
+      black,
+      result: normaliseResult(headers.Result),
+      // Empty string, not null: null is not indexable, so an undated game
+      // would vanish from the date index. See GameRecord.dateIso.
+      dateIso: normalisePgnDate(headers.Date) ?? "",
+      event,
+      site,
+      round: headerOrNull(headers, "Round"),
+      eco: headerOrNull(headers, "ECO"),
+      opening,
+      timeControl: headerOrNull(headers, "TimeControl"),
+      playerColor,
+      tags: [],
+      notes: "",
+      plyCount: parsed.plyCount,
+      finalFen: parsed.finalFen,
+      searchTokens: buildSearchTokens(white, black, event, site, opening),
+      importedAt: options.now,
+      updatedAt: options.now,
+    },
+    content: { pgn, headers },
   };
 }

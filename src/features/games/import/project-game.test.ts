@@ -4,7 +4,13 @@ import { projectGame } from "./project-game";
 
 const NOW = 1_700_000_000_000;
 
+/** The indexed metadata, which is what most of these assertions are about. */
 function project(pgn: string, ownerNames: string[] = []) {
+  return projectGame(pgn, parseGame(pgn), { ownerNames, now: NOW }).record;
+}
+
+/** Both halves of the split, for assertions about the stored text. */
+function projectFull(pgn: string, ownerNames: string[] = []) {
   return projectGame(pgn, parseGame(pgn), { ownerNames, now: NOW });
 }
 
@@ -83,10 +89,18 @@ describe("projectGame", () => {
 
   it("keeps the original PGN and headers verbatim", () => {
     const pgn = '[Event "Club"]\n[WhiteElo "2830"]\n\n1. e4 *';
-    const record = project(pgn);
-    expect(record.pgn).toBe(pgn);
-    expect(record.headers.WhiteElo).toBe("2830");
+    const { content } = projectFull(pgn);
+    expect(content.pgn).toBe(pgn);
+    expect(content.headers.WhiteElo).toBe("2830");
     // Absent mandatory tags must not be invented.
-    expect(record.headers).not.toHaveProperty("Site");
+    expect(content.headers).not.toHaveProperty("Site");
+  });
+
+  it("keeps the text out of the indexed metadata", () => {
+    // The split is what keeps filtering cheap; text leaking back into the
+    // metadata record would silently undo it.
+    const record = project('[Event "Club"]\n\n1. e4 *');
+    expect(record).not.toHaveProperty("pgn");
+    expect(record).not.toHaveProperty("headers");
   });
 });
