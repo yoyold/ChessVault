@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ChessVault
 
-## Getting Started
+A personal chess improvement platform: game database, engine analysis, opening
+repertoire, endgame and tactical training, and a linked knowledge base.
 
-First, run the development server:
+Local-first. Everything runs in the browser and all data stays in IndexedDB on
+the machine it was entered on. There is no backend, no account, and no network
+dependency beyond loading the app itself.
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev        # development server
+npm test           # unit and persistence tests
+npm run test:watch
+npm run typecheck
+npm run lint
+npm run build      # static export to out/
+npm run preview    # serve the built export
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Architecture
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Dependencies point strictly inward. The rule is enforced by ESLint, not by
+convention — see `eslint.config.mjs`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/app/          route composition, deliberately thin
+src/features/     feature modules: services, hooks, components
+src/persistence/  Dexie database, schema versions, repositories
+src/core/         pure domain: chess logic, entities, algorithms
+src/lib/          cross-cutting helpers
+```
 
-## Learn More
+`src/core/` imports no framework and no storage library. Chess rules, position
+identity and spaced-repetition scheduling live there because they are the parts
+most worth insulating from framework churn, and they are testable without a DOM
+or a database.
 
-To learn more about Next.js, take a look at the following resources:
+## Decisions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Non-obvious decisions are recorded in `docs/adr/`. Worth reading before making
+structural changes:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| ADR | Subject |
+|---|---|
+| [0001](docs/adr/0001-hosting-constraints.md) | How static hosting constrains routing and asset URLs |
+| [0002](docs/adr/0002-engine-threading.md) | Why the engine is single-threaded, and the seam that makes that reversible |
+| [0003](docs/adr/0003-layering.md) | Layering, and where abstraction is and is not worth its cost |
+| [0004](docs/adr/0004-position-identity.md) | Position identity and deduplication |
+| [0005](docs/adr/0005-schema-versioning.md) | Incremental schema versions |
 
-## Deploy on Vercel
+Three constraints are easy to violate by accident:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **No route may depend on build-time knowledge of user data.** Static export
+  pre-renders every route, and user data lives in the browser, so dynamic
+  segments cannot work. Detail views use search parameters.
+- **Hand-built asset URLs must go through `asset()`** in `src/lib/paths.ts`.
+  Under a project-site base path they otherwise resolve against the domain root
+  and 404 only in production.
+- **Never edit a released schema version.** Add a new one. Dexie replays
+  versions in order for users upgrading from any earlier state.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deployment
+
+Pushing to `main` builds a static export and publishes it to GitHub Pages. Lint,
+typecheck and tests all gate the deploy. The base path is derived from the
+repository name automatically, including the case of a user site served from the
+domain root.
