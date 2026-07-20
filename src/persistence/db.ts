@@ -39,6 +39,10 @@ class ChessVaultDatabase extends Dexie {
     this.version(1).stores({
       games: [
         "++id",
+        // Not unique: it narrows candidates for the duplicate check, which then
+        // compares PGN text. A unique index would let a hash collision reject a
+        // genuinely different game.
+        "contentHash",
         "importedAt",
         "dateIso",
         "eco",

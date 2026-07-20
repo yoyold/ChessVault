@@ -16,6 +16,20 @@ are additive and cheap; a wrong schema written speculatively is neither.
 Version 1 covers games and the position database. Evaluations, repertoire nodes,
 endgames, puzzles, notes and training cards arrive with their own modules.
 
+## One recorded exception
+
+`version(1)` was amended once, after deployment, to add the `contentHash` index
+used for duplicate detection on import.
+
+This was safe for a specific and non-recurring reason: no code path in the
+deployed build ever opened the database. Dexie connects lazily on first query,
+and until the import feature existed there were no queries, so the database had
+not been created in any browser. There was no stored state to migrate and
+therefore no history to rewrite.
+
+That condition no longer holds. From the first import onwards the rule below is
+absolute.
+
 ## Rules for changing the schema
 
 1. Never edit a released `version(n)` block. Add `version(n+1)`.

@@ -19,6 +19,15 @@ export interface GameRecord {
   pgn: string;
 
   /**
+   * Fingerprint of the PGN text, used to recognise a game already imported.
+   *
+   * Indexed but not unique: it narrows the candidates for a duplicate check,
+   * which then compares actual PGN text. A unique index would make a hash
+   * collision reject a legitimately different game outright.
+   */
+  contentHash: string;
+
+  /**
    * All PGN tag pairs, preserved losslessly including non-standard ones.
    *
    * The typed fields below cover what the application filters on; this keeps

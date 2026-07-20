@@ -8,6 +8,7 @@ const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 function makeGame(overrides: Partial<GameRecord> = {}): GameRecord {
   return {
     pgn: '[Event "Club"]\n\n1. e4 e5 *',
+    contentHash: "0000000000000001",
     headers: { Event: "Club" },
     white: "Carlsen, Magnus",
     black: "Nepomniachtchi, Ian",
@@ -93,7 +94,6 @@ describe("position deduplication", () => {
     const key = positionKeyFromFen(START_FEN);
     const record = {
       key,
-      fen: START_FEN,
       sideToMove: "w" as const,
       notes: "",
       tags: [],

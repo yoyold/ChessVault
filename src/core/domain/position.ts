@@ -15,14 +15,16 @@ export interface PositionRecord {
   key: PositionKey;
 
   /**
-   * A full FEN for this position, from the first game that reached it.
+   * Denormalised from the key purely so it can be indexed.
    *
-   * The key omits move counters, so a complete FEN is kept to set up a board or
-   * hand a position to the engine. The counters are informational only: any two
-   * games reaching this position agree on everything the key covers.
+   * IndexedDB indexes stored properties, not computed ones, and filtering
+   * training positions by side to move is a routine query.
+   *
+   * Note the absence of a stored FEN: the key already carries everything that
+   * identifies the position, and the missing move counters are by definition
+   * not part of that identity. Use `fenFromPositionKey` when a board or the
+   * engine needs a complete FEN.
    */
-  fen: string;
-
   sideToMove: "w" | "b";
 
   /** User annotations. Kept on the position so they survive deleting the game that introduced it. */

@@ -34,7 +34,7 @@ export function positionKey(chess: Chess): PositionKey {
 }
 
 /**
- * Derive the position key from a FEN string.
+ * Derive the position key from a FEN string of unknown origin.
  *
  * Round-tripping through chess.js is deliberate: it normalises the en-passant
  * field of a hand-written or third-party FEN, which may set the square even
@@ -46,7 +46,41 @@ export function positionKeyFromFen(fen: string): PositionKey {
   return positionKey(new Chess(fen));
 }
 
+/**
+ * Derive the position key from a FEN that chess.js itself produced.
+ *
+ * Only valid for FENs emitted by chess.js (`fen()`, or the `before`/`after`
+ * fields of a verbose history entry), which are already en-passant normalised.
+ * It skips parsing entirely, which matters because import calls this once per
+ * ply — millions of times across a large collection.
+ *
+ * For any FEN that came from a file, a user, or another library, use
+ * {@link positionKeyFromFen} instead: passing an unnormalised FEN here would
+ * silently produce a key that fails to match its transpositions.
+ */
+export function positionKeyFromEngineFen(fen: string): PositionKey {
+  const [placement, sideToMove, castling, epSquare] = fen.split(" ");
+  return `${placement} ${sideToMove} ${castling} ${epSquare}` as PositionKey;
+}
+
 /** The side to move encoded in a position key. */
 export function sideToMoveOf(key: PositionKey): "w" | "b" {
   return key.split(" ")[1] as "w" | "b";
+}
+
+/**
+ * Expand a position key into a complete FEN, for setting up a board or handing
+ * the position to the engine.
+ *
+ * The halfmove clock and fullmove number are set to `0 1` because the position
+ * database does not model them: they are not part of a position's identity, so
+ * every game reaching this position — with whatever clock — maps to the same
+ * row. Storing one arbitrary game's counters would imply a precision the shared
+ * row cannot have.
+ *
+ * Where the counters genuinely matter — fifty-move adjudication when analysing
+ * one specific game — use that game's own FEN from replaying its PGN, not this.
+ */
+export function fenFromPositionKey(key: PositionKey): string {
+  return `${key} 0 1`;
 }
