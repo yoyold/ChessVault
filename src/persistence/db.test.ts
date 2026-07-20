@@ -42,8 +42,9 @@ beforeEach(async () => {
 
 describe("schema", () => {
   it("opens at the current version with the expected tables", async () => {
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3);
     expect(db.tables.map((t) => t.name).sort()).toEqual([
+      "evaluations",
       "gameContents",
       "gamePositions",
       "games",

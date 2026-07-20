@@ -37,7 +37,7 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard, available: true },
   { href: "/games", label: "Games", icon: Library, available: true },
-  { href: "/analysis", label: "Analysis", icon: Cpu, available: false },
+  { href: "/analysis", label: "Analysis", icon: Cpu, available: true },
   { href: "/openings", label: "Openings", icon: GitBranch, available: false },
   { href: "/endgames", label: "Endgames", icon: Flag, available: false },
   { href: "/tactics", label: "Tactics", icon: Target, available: false },

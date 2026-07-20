@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { Cpu, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,13 @@ export function GameDetail({ gameId, onClose, onDeleted }: GameDetailProps) {
           {content.pgn}
         </pre>
       </section>
+
+      <Button asChild variant="secondary" className="gap-2 self-start">
+        <Link href={`/analysis/?game=${gameId}`}>
+          <Cpu className="size-4" />
+          Analyse this game
+        </Link>
+      </Button>
 
       <Button
         variant="destructive"

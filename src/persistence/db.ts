@@ -5,6 +5,7 @@ import type {
   GameRecord,
 } from "@/core/domain/game";
 import type { PositionRecord } from "@/core/domain/position";
+import type { EvaluationRecord } from "@/core/domain/evaluation";
 
 /**
  * Records are moved between tables in bounded chunks during migration.
@@ -35,6 +36,7 @@ export class ChessVaultDatabase extends Dexie {
   games!: EntityTable<GameRecord, "id">;
   gameContents!: EntityTable<GameContentRecord, "gameId">;
   positions!: EntityTable<PositionRecord, "key">;
+  evaluations!: EntityTable<EvaluationRecord, "key">;
 
   /** Compound primary key `[gameId+ply]`, so the key type is a tuple. */
   gamePositions!: Table<GamePositionRecord, [number, number]>;
@@ -162,6 +164,20 @@ export class ChessVaultDatabase extends Dexie {
           );
         }
       });
+
+    /**
+     * Version 3 — stored engine evaluations.
+     *
+     * Purely additive, so no upgrade function is needed: Dexie creates the
+     * table and existing data is untouched.
+     *
+     * `depth` is indexed to support finding positions worth re-analysing more
+     * deeply. `evaluatedAt` is indexed so evaluations from a superseded engine
+     * build can be found and refreshed.
+     */
+    this.version(3).stores({
+      evaluations: "key, depth, evaluatedAt",
+    });
   }
 }
 

@@ -82,6 +82,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party engine binaries staged into public/ at build time. Linting
+    // vendored, minified code reports on decisions that are not ours to make.
+    "public/engine/**",
   ]),
 ]);
 

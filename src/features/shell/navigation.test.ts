@@ -29,6 +29,6 @@ describe("NAV_ITEMS", () => {
     // Guards the promise the navigation makes: an entry marked available must
     // have a real page behind it, never an empty placeholder.
     const available = NAV_ITEMS.filter((item) => item.available).map((i) => i.href);
-    expect(available).toEqual(["/", "/games", "/settings"]);
+    expect(available).toEqual(["/", "/games", "/analysis", "/settings"]);
   });
 });

@@ -53,5 +53,8 @@ AGENTS.md
 # test output
 /test-results/
 
+# engine binaries, staged from node_modules by scripts/copy-engine.mjs
+/public/engine/
+
 # OS
 Thumbs.db

@@ -88,7 +88,6 @@ describe("version 1 to 2", () => {
     const db = new ChessVaultDatabase(name);
     await db.open();
 
-    expect(db.verno).toBe(2);
     expect(await db.gameContents.count()).toBe(3);
 
     const content = await db.gameContents.get(1);
@@ -217,13 +216,31 @@ describe("version 1 to 2", () => {
 });
 
 describe("fresh installation", () => {
-  it("creates the current schema directly without running the upgrade", async () => {
+  it("creates every table directly without running any upgrade", async () => {
     const db = new ChessVaultDatabase(uniqueName());
     await db.open();
 
-    expect(db.verno).toBe(2);
     expect(await db.games.count()).toBe(0);
     expect(await db.gameContents.count()).toBe(0);
+    expect(await db.evaluations.count()).toBe(0);
+
+    db.close();
+  });
+});
+
+describe("upgrading across several versions at once", () => {
+  it("brings a version 1 database fully up to date", async () => {
+    // A user returning after several releases upgrades through every version
+    // in one open, which is the path least likely to be exercised by hand.
+    const name = uniqueName();
+    await seedLegacyDatabase(name, 2);
+
+    const db = new ChessVaultDatabase(name);
+    await db.open();
+
+    expect(await db.gameContents.count()).toBe(2);
+    expect(await db.evaluations.count()).toBe(0);
+    expect((await db.games.get(1))).not.toHaveProperty("pgn");
 
     db.close();
   });
