@@ -8,7 +8,6 @@ import { mainline, parseGameTree, type TreeNode } from "@/core/chess/pgn/parse-t
 import {
   alternativesAt,
   clampPath,
-  displayLine,
   endOfLinePath,
   nextPath,
   nodeAtPath,
@@ -85,7 +84,6 @@ export function AnalysisView({ gameId }: { gameId: number }) {
   const safePath = useMemo(() => (root ? clampPath(root, path) : []), [root, path]);
 
   const current = root ? nodeAtPath(root, safePath) : null;
-  const line = useMemo(() => (root ? displayLine(root, safePath) : []), [root, safePath]);
   const alternatives = useMemo(
     () => (root ? alternativesAt(root, safePath) : []),
     [root, safePath],
@@ -259,7 +257,9 @@ export function AnalysisView({ gameId }: { gameId: number }) {
             score={liveScore}
             orientation={game.record.playerColor === "black" ? "black" : "white"}
           />
-          <div className="min-w-0 flex-1">
+          {/* A defined edge: without one the board's light squares bleed into
+              a light page and its dark squares into a dark one. */}
+          <div className="border-border min-w-0 flex-1 overflow-hidden rounded-md border-2">
             <AnalysisBoard
               fen={current.fen}
               orientation={game.record.playerColor === "black" ? "black" : "white"}
@@ -415,12 +415,22 @@ export function AnalysisView({ gameId }: { gameId: number }) {
           {fullGame.report ? <GameReportSummary report={fullGame.report} /> : null}
         </section>
 
-        <MoveList
-          line={line}
-          currentPath={safePath}
-          qualityByPly={qualityByPly}
-          onSelect={setPath}
-        />
+        {/*
+          Given the whole tree, not one line: variations are shown where they
+          branch rather than only being reachable by stepping into them.
+
+          `flex-1` with `min-h-0` lets the list take the height the column has
+          left instead of a fixed cap, so the moves use the space before
+          scrolling starts.
+        */}
+        <div className="min-h-0 flex-1 overflow-auto">
+          <MoveList
+            root={root}
+            currentPath={safePath}
+            qualityByPly={qualityByPly}
+            onSelect={setPath}
+          />
+        </div>
       </div>
     </div>
   );

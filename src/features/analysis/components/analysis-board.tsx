@@ -47,6 +47,17 @@ const BOARD_STYLE: CSSProperties = {
   height: "auto",
   borderRadius: "0.25rem",
   overflow: "hidden",
+
+  /*
+   * Dimmed as a whole rather than by darkening the square colours.
+   *
+   * The per-square colour options are applied after `squareStyles`, so setting
+   * them would overwrite the last-move highlight — that is how the highlight
+   * silently stopped working once before. A filter leaves the highlight intact
+   * and dims the pieces along with the squares, which is what makes the board
+   * sit back rather than glare.
+   */
+  filter: "brightness(0.93) saturate(0.96)",
 };
 
 export interface AnalysisBoardProps {

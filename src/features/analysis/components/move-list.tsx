@@ -1,10 +1,18 @@
 "use client";
 
 import { formatMoveNumber, formatNag } from "@/core/chess/pgn/game-timeline";
-import {
-  MAX_COMMENT_LENGTH,
-  toDisplayComment,
-} from "@/core/chess/pgn/comment-display";
+import type { TreeNode } from "@/core/chess/pgn/parse-tree";
+import { MAX_COMMENT_LENGTH, toDisplayComment } from "@/core/chess/pgn/comment-display";
+import type { MoveQuality } from "@/core/analysis/move-quality";
+import type { TreePath } from "@/core/chess/pgn/tree-path";
+import { cn } from "@/lib/utils";
+
+/** Engine verdicts, shown alongside the annotator's own glyphs rather than replacing them. */
+const QUALITY_MARK: Partial<Record<MoveQuality, { label: string; className: string }>> = {
+  inaccuracy: { label: "?!", className: "text-yellow-600 dark:text-yellow-400" },
+  mistake: { label: "?", className: "text-orange-600 dark:text-orange-400" },
+  blunder: { label: "??", className: "text-red-600 dark:text-red-400" },
+};
 
 /** Prose of a move's comments, with machine commands and empties removed. */
 function visibleCommentText(comments: readonly string[]): string {
@@ -14,87 +22,209 @@ function visibleCommentText(comments: readonly string[]): string {
     .join(" ")
     .slice(0, MAX_COMMENT_LENGTH);
 }
-import type { TreeNode } from "@/core/chess/pgn/parse-tree";
-import type { MoveQuality } from "@/core/analysis/move-quality";
-import type { TreePath } from "@/core/chess/pgn/tree-path";
-import { cn } from "@/lib/utils";
 
-/** Engine verdicts, shown alongside the annotator's own glyphs rather than replacing them. */
-const QUALITY_MARK: Partial<Record<MoveQuality, { label: string; className: string }>> = {
-  inaccuracy: { label: "?!", className: "text-yellow-600 dark:text-yellow-500" },
-  mistake: { label: "?", className: "text-orange-600 dark:text-orange-500" },
-  blunder: { label: "??", className: "text-red-600 dark:text-red-500" },
-};
+function samePath(a: TreePath, b: TreePath): boolean {
+  return a.length === b.length && a.every((step, index) => step === b[index]);
+}
 
 interface MoveListProps {
-  /** Moves of the branch currently being read, root first. */
-  line: TreeNode[];
-  /** Path to the currently selected move, used to mark it and to build paths. */
+  /** The whole game, so variations can be shown where they branch. */
+  root: TreeNode;
   currentPath: TreePath;
   qualityByPly: Map<number, MoveQuality>;
   onSelect: (path: number[]) => void;
 }
 
 /**
- * The moves of the current branch.
+ * The game's moves, with variations shown where they branch.
  *
- * Comments are rendered inline between moves, as in printed annotation, so a
- * remark stays next to the move it is about instead of being relegated to a
- * separate panel where the connection is lost.
+ * Variations are rendered in place rather than only reachable by stepping into
+ * them, which is how printed annotation and every chess interface presents
+ * them: the alternative belongs next to the move it replaces, and a reader
+ * needs to see that a choice existed without having to discover it.
+ *
+ * Nesting is limited by indentation and a rule down the left, not by
+ * parentheses alone — at two or three levels deep, parentheses stop being
+ * readable.
  */
-export function MoveList({ line, currentPath, qualityByPly, onSelect }: MoveListProps) {
+export function MoveList({ root, currentPath, qualityByPly, onSelect }: MoveListProps) {
   return (
-    <ol className="flex max-h-72 flex-wrap items-baseline gap-x-1 gap-y-1 overflow-auto text-sm">
-      {line.slice(1).map((node, index) => {
-        // The line is the path followed by its mainline continuation, so a move
-        // beyond the current path continues along first children.
-        const path =
-          index < currentPath.length
-            ? currentPath.slice(0, index + 1)
-            : [...currentPath, ...Array(index + 1 - currentPath.length).fill(0)];
+    <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[0.95em] leading-relaxed">
+      <Line
+        node={root}
+        path={[]}
+        currentPath={currentPath}
+        qualityByPly={qualityByPly}
+        onSelect={onSelect}
+        forceNumber
+        inVariation={false}
+      />
+    </div>
+  );
+}
 
-        const isCurrent =
-          path.length === currentPath.length &&
-          path.every((step, i) => step === currentPath[i]);
+/**
+ * One continuous line of play, plus any variations branching off it.
+ *
+ * Written as a loop rather than recursion down the mainline: a long game nests
+ * hundreds of moves deep, and recursing per move would both blow the stack and
+ * indent the mainline as though every move were a subvariation.
+ */
+function Line({
+  node,
+  path,
+  currentPath,
+  qualityByPly,
+  onSelect,
+  forceNumber,
+  inVariation,
+}: {
+  node: TreeNode;
+  path: number[];
+  currentPath: TreePath;
+  qualityByPly: Map<number, MoveQuality>;
+  onSelect: (path: number[]) => void;
+  forceNumber: boolean;
+  inVariation: boolean;
+}) {
+  const output: React.ReactNode[] = [];
 
-        const mark = QUALITY_MARK[qualityByPly.get(node.ply) ?? "good"];
-        const commentText = visibleCommentText(node.comments);
+  let current = node;
+  let currentPathHere = path;
+  let needsNumber = forceNumber;
 
-        return (
-          <li key={`${node.ply}-${node.san}`} className="flex items-baseline gap-1">
-            {node.ply % 2 === 1 ? (
-              <span className="text-muted-foreground tabular-nums">
-                {formatMoveNumber(node.ply)}
-              </span>
-            ) : null}
+  while (current.children.length > 0) {
+    const [mainline, ...alternatives] = current.children;
+    const movePath = [...currentPathHere, 0];
 
-            <button
-              type="button"
-              onClick={() => onSelect(path)}
-              className={cn(
-                "rounded px-1",
-                isCurrent ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-              )}
-            >
-              {node.san}
-              {node.nags.map((nag) => (
-                <span key={nag} className="text-muted-foreground">
-                  {formatNag(nag)}
-                </span>
-              ))}
-              {mark ? <span className={mark.className}>{mark.label}</span> : null}
-            </button>
+    const comment = visibleCommentText(mainline.comments);
 
-            {commentText ? (
-              // Capped: an unbounded comment from a damaged file can be
-              // hundreds of thousands of characters and freezes the page.
-              <span className="text-muted-foreground max-w-full text-xs italic">
-                {commentText}
-              </span>
-            ) : null}
-          </li>
-        );
-      })}
-    </ol>
+    output.push(
+      <Move
+        key={movePath.join("-")}
+        parent={current}
+        node={mainline}
+        path={movePath}
+        selected={samePath(movePath, currentPath)}
+        quality={qualityByPly.get(mainline.ply)}
+        forceNumber={needsNumber}
+        inVariation={inVariation}
+        onSelect={onSelect}
+      />,
+    );
+
+    if (comment) {
+      output.push(
+        <span
+          key={`${movePath.join("-")}-comment`}
+          className="text-muted-foreground basis-full text-[0.85em] italic"
+        >
+          {comment}
+        </span>,
+      );
+    }
+
+    for (const [offset, alternative] of alternatives.entries()) {
+      const branchPath = [...currentPathHere, offset + 1];
+
+      output.push(
+        <div
+          key={branchPath.join("-")}
+          className="border-muted-foreground/30 text-muted-foreground basis-full border-l-2 pl-2"
+        >
+          <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+            <Move
+              parent={current}
+              node={alternative}
+              path={branchPath}
+              selected={samePath(branchPath, currentPath)}
+              quality={qualityByPly.get(alternative.ply)}
+              forceNumber
+              inVariation
+              onSelect={onSelect}
+            />
+            <Line
+              node={alternative}
+              path={branchPath}
+              currentPath={currentPath}
+              qualityByPly={qualityByPly}
+              onSelect={onSelect}
+              forceNumber={false}
+              inVariation
+            />
+          </div>
+        </div>,
+      );
+    }
+
+    // A comment or a variation interrupts the sequence, so the next Black move
+    // has to restate its number to stay unambiguous.
+    needsNumber = alternatives.length > 0 || comment !== "";
+
+    currentPathHere = movePath;
+    current = mainline;
+  }
+
+  // Every element already carries a key derived from its path.
+  return <>{output}</>;
+}
+
+function Move({
+  parent,
+  node,
+  path,
+  selected,
+  quality,
+  forceNumber,
+  inVariation,
+  onSelect,
+}: {
+  parent: TreeNode;
+  node: TreeNode;
+  path: number[];
+  selected: boolean;
+  quality: MoveQuality | undefined;
+  forceNumber: boolean;
+  /** Sidelines are set back so the game as played stays the dominant reading. */
+  inVariation: boolean;
+  onSelect: (path: number[]) => void;
+}) {
+  const mark = quality ? QUALITY_MARK[quality] : undefined;
+  const showNumber = parent.sideToMove === "w" || forceNumber;
+
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      {showNumber ? (
+        // `formatMoveNumber` already distinguishes the colours, rendering
+        // "12." for White and "12..." for Black.
+        <span className="text-muted-foreground/70 tabular-nums">
+          {formatMoveNumber(node.ply)}
+        </span>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => onSelect(path)}
+        aria-current={selected ? "true" : undefined}
+        className={cn(
+          "rounded px-1 font-medium transition-colors",
+          selected
+            ? // The strongest contrast in the panel: the current move must be
+              // findable at a glance in a wall of similar text.
+              "bg-primary text-primary-foreground"
+            : inVariation
+              ? "text-muted-foreground hover:bg-accent hover:text-foreground"
+              : "text-foreground hover:bg-accent",
+        )}
+      >
+        {node.san}
+        {node.nags.map((nag) => (
+          <span key={nag} className="text-muted-foreground">
+            {formatNag(nag)}
+          </span>
+        ))}
+        {mark ? <span className={mark.className}>{mark.label}</span> : null}
+      </button>
+    </span>
   );
 }
