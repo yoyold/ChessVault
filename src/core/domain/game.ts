@@ -67,6 +67,26 @@ export interface GameRecord {
   /** Which side the database owner played, or null for games they were not in. */
   playerColor: Color | null;
 
+  /** Rating of each player as given in the PGN, or null when the tag is absent. */
+  whiteElo: number | null;
+  blackElo: number | null;
+
+  /**
+   * The opponent's name and rating, derived from {@link playerColor}.
+   *
+   * Denormalised rather than computed on read because both are filtered and
+   * sorted on, and IndexedDB can only index a stored property.
+   *
+   * Both are null for a game the owner did not play, where "opponent" has no
+   * meaning. They are recomputed when the configured player names change; a
+   * game imported before a name was configured keeps null until then.
+   */
+  opponent: string | null;
+  opponentElo: number | null;
+
+  /** The owner's own rating in this game, for tracking progress over time. */
+  playerElo: number | null;
+
   tags: string[];
   notes: string;
 

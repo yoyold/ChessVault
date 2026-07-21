@@ -8,6 +8,10 @@ import { gameContentHash } from "@/core/chess/pgn/content-hash";
 import { normalisePgnDate } from "@/core/chess/pgn/pgn-date";
 import { buildSearchTokens } from "@/core/chess/search-tokens";
 import { matchesAnyPlayer } from "@/core/chess/player-identity";
+import {
+  opponentPerspective,
+  parseElo,
+} from "@/core/domain/player-perspective";
 
 export interface ProjectGameOptions {
   /** Names the database owner plays under, used to decide which colour they had. */
@@ -75,8 +79,14 @@ export function projectGame(
   if (matchesAnyPlayer(white, options.ownerNames)) playerColor = "white";
   else if (matchesAnyPlayer(black, options.ownerNames)) playerColor = "black";
 
+  const whiteElo = parseElo(headers.WhiteElo);
+  const blackElo = parseElo(headers.BlackElo);
+
   return {
     record: {
+      whiteElo,
+      blackElo,
+      ...opponentPerspective(playerColor, { white, black }, { whiteElo, blackElo }),
       contentHash: gameContentHash(pgn),
       white,
       black,

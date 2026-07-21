@@ -22,6 +22,11 @@ function game(overrides: Partial<GameRecord> = {}): GameRecord {
     opening: "King's Pawn Game",
     timeControl: "300+3",
     playerColor: "white",
+    whiteElo: 1437,
+    blackElo: 1602,
+    opponent: "Nepomniachtchi, Ian",
+    opponentElo: 1602,
+    playerElo: 1437,
     tags: [],
     notes: "",
     plyCount: 40,
@@ -174,6 +179,68 @@ describe("single filters", () => {
       await seed(game({ dateIso: "" }));
       expect(await queryGameIds({ dateFrom: "2000-01-01" })).toHaveLength(3);
     });
+  });
+});
+
+describe("opponent rating", () => {
+  beforeEach(async () => {
+    await seed(
+      game({ opponentElo: 1200, white: "Weak" }),
+      game({ opponentElo: 1600, white: "Middle" }),
+      game({ opponentElo: 2000, white: "Strong" }),
+      game({ opponentElo: null, white: "Unrated" }),
+    );
+  });
+
+  it("filters by a rating range", () => {
+    return expect(
+      queryGameIds({ opponentEloFrom: 1500, opponentEloTo: 1800 }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("applies an open-ended lower bound", async () => {
+    expect(await queryGameIds({ opponentEloFrom: 1500 })).toHaveLength(2);
+  });
+
+  it("excludes games with no known opponent rating", async () => {
+    // A game with no rating cannot be shown to fall inside a range.
+    expect(await queryGameIds({ opponentEloFrom: 0 })).toHaveLength(3);
+  });
+
+  it("sorts strongest opposition first", async () => {
+    const ordered = await getGamesByIds(await queryGameIds({}, "opponentElo"));
+    expect(ordered.slice(0, 3).map((g) => g.white)).toEqual([
+      "Strong",
+      "Middle",
+      "Weak",
+    ]);
+  });
+
+  it("combines a rating range with another filter", async () => {
+    await seed(game({ opponentElo: 1700, result: "0-1", white: "Loss" }));
+
+    const ids = await queryGameIds({ opponentEloFrom: 1650, result: "0-1" });
+    const found = await getGamesByIds(ids);
+
+    expect(found.map((g) => g.white)).toEqual(["Loss"]);
+  });
+});
+
+describe("tournament", () => {
+  it("sorts alphabetically by event", async () => {
+    await seed(
+      game({ event: "Vereinsmeisterschaft", white: "C" }),
+      game({ event: "Bundesliga", white: "A" }),
+      game({ event: "SPEM 2025", white: "B" }),
+    );
+
+    const ordered = await getGamesByIds(await queryGameIds({}, "event"));
+    expect(ordered.map((g) => g.white)).toEqual(["A", "B", "C"]);
+  });
+
+  it("filters to a single tournament", async () => {
+    await seed(game({ event: "SPEM 2025" }), game({ event: "Bundesliga" }));
+    expect(await queryGameIds({ event: "SPEM 2025" })).toHaveLength(1);
   });
 });
 

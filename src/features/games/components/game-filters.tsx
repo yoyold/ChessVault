@@ -49,9 +49,11 @@ export function GameFilters({
     const next = { ...filter, ...patch };
 
     // Empty strings are dropped rather than stored: the query treats any
-    // present key as an active filter.
+    // present key as an active filter. NaN is dropped too — a number input
+    // yields it mid-edit, and it would match nothing at all.
     for (const key of Object.keys(next) as (keyof GameFilter)[]) {
-      if (next[key] === "" || next[key] === undefined) delete next[key];
+      const value = next[key];
+      if (value === "" || value === undefined || Number.isNaN(value)) delete next[key];
     }
 
     onFilterChange(next);
@@ -186,6 +188,41 @@ export function GameFilters({
           />
         </label>
 
+        {/*
+          Opponent rating, from your own point of view: whichever side you did
+          not play. Games where you are not a player, or where the rating is
+          absent, cannot satisfy a range and are excluded.
+        */}
+        <label className="text-muted-foreground flex items-center gap-1 text-sm">
+          Opp. rating
+          <Input
+            type="number"
+            inputMode="numeric"
+            value={filter.opponentEloFrom ?? ""}
+            onChange={(event) =>
+              update({
+                opponentEloFrom: event.target.value === "" ? undefined : Number(event.target.value),
+              })
+            }
+            placeholder="from"
+            aria-label="Minimum opponent rating"
+            className="w-24"
+          />
+          <Input
+            type="number"
+            inputMode="numeric"
+            value={filter.opponentEloTo ?? ""}
+            onChange={(event) =>
+              update({
+                opponentEloTo: event.target.value === "" ? undefined : Number(event.target.value),
+              })
+            }
+            placeholder="to"
+            aria-label="Maximum opponent rating"
+            className="w-24"
+          />
+        </label>
+
         {active ? (
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => onFilterChange({})}>
             <X className="size-3.5" />
@@ -209,6 +246,8 @@ export function GameFilters({
           >
             <option value="date">By date played</option>
             <option value="imported">By date imported</option>
+            <option value="opponentElo">By opponent rating</option>
+            <option value="event">By tournament</option>
           </select>
         </span>
       </div>

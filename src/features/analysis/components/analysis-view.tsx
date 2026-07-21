@@ -1,8 +1,7 @@
 "use client";
 
-import { Chessboard } from "react-chessboard";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, SkipBack, SkipForward } from "lucide-react";
 import { formatMoveNumber, formatNag } from "@/core/chess/pgn/game-timeline";
 import { toDisplayComment } from "@/core/chess/pgn/comment-display";
@@ -23,6 +22,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getFullGame } from "@/persistence/repositories/game-repository";
 import { getEvaluations } from "@/persistence/repositories/evaluation-repository";
+import { useShortcut } from "@/features/shell/use-shortcut";
+import { AnalysisBoard } from "./analysis-board";
 import { useEngine } from "../hooks/use-engine";
 import { useEngineAnalysis, type EngineSettings } from "../hooks/use-engine-analysis";
 import { useFullGameAnalysis } from "../hooks/use-full-game-analysis";
@@ -92,6 +93,27 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     return map;
   }, [fullGame.report]);
 
+  // Arrow keys step through the game, as in every chess interface. Declared
+  // before the early returns below, since hooks cannot be conditional.
+  const stepBack = useCallback(() => {
+    if (!root) return;
+    const target = previousPath(safePath);
+    if (target) setPath(target);
+  }, [root, safePath]);
+
+  const stepForward = useCallback(() => {
+    if (!root) return;
+    const target = nextPath(root, safePath);
+    if (target) setPath(target);
+  }, [root, safePath]);
+
+  useShortcut("ArrowLeft", stepBack);
+  useShortcut("ArrowRight", stepForward);
+  useShortcut("ArrowUp", () => setPath([]));
+  useShortcut("ArrowDown", () => {
+    if (root) setPath(endOfLinePath(root, safePath));
+  });
+
   if (game === undefined) {
     return <p className="text-muted-foreground text-sm">Loading game…</p>;
   }
@@ -109,16 +131,15 @@ export function AnalysisView({ gameId }: { gameId: number }) {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-      <div className="flex flex-col gap-3">
-        <Chessboard
-          options={{
-            position: current.fen,
-            boardOrientation: game.record.playerColor === "black" ? "black" : "white",
-            allowDragging: false,
-            showNotation: true,
-            animationDurationInMs: 120,
-          }}
+    // Proportional columns rather than a fixed or viewport-derived board width:
+    // a column that asks for more than it receives makes the board measure one
+    // width and render at another.
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="flex w-full min-w-0 flex-col gap-3">
+        <AnalysisBoard
+          fen={current.fen}
+          orientation={game.record.playerColor === "black" ? "black" : "white"}
+          lastMoveUci={current.uci}
         />
 
         <div className="flex items-center gap-1">

@@ -131,12 +131,22 @@ function GameRow({
     >
       <span className="min-w-0 flex-1 truncate">
         <span className="font-medium">{game.white || "?"}</span>
+        {game.whiteElo ? (
+          <span className="text-muted-foreground text-xs"> {game.whiteElo}</span>
+        ) : null}
         <span className="text-muted-foreground"> vs </span>
         <span className="font-medium">{game.black || "?"}</span>
+        {game.blackElo ? (
+          <span className="text-muted-foreground text-xs"> {game.blackElo}</span>
+        ) : null}
       </span>
 
       <span className="text-muted-foreground w-12 shrink-0 text-center tabular-nums">
         {RESULT_LABEL[game.result] ?? game.result}
+      </span>
+
+      <span className="text-muted-foreground hidden w-32 shrink-0 truncate lg:block">
+        {game.event ?? ""}
       </span>
 
       <span className="text-muted-foreground hidden w-24 shrink-0 truncate sm:block">

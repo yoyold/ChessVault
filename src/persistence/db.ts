@@ -6,6 +6,7 @@ import type {
 } from "@/core/domain/game";
 import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
+import { opponentPerspective, parseElo } from "@/core/domain/player-perspective";
 
 /**
  * Records are moved between tables in bounded chunks during migration.
@@ -178,8 +179,79 @@ export class ChessVaultDatabase extends Dexie {
     this.version(3).stores({
       evaluations: "key, depth, evaluatedAt",
     });
+
+    /**
+     * Version 4 — player ratings and the derived opponent.
+     *
+     * `opponent` and `opponentElo` are derived from which side the owner played,
+     * and are stored rather than computed because IndexedDB can only index a
+     * stored property, and both are filtered and sorted on.
+     *
+     * Existing games are backfilled from their PGN headers. Those headers were
+     * kept verbatim on import precisely so that a projection added later can be
+     * recovered without asking the user to import everything again.
+     */
+    this.version(4)
+      .stores({
+        games: [
+          "++id",
+          "contentHash",
+          "importedAt",
+          "dateIso",
+          "eco",
+          "opening",
+          "result",
+          "playerColor",
+          "white",
+          "black",
+          "event",
+          "timeControl",
+          "opponent",
+          "opponentElo",
+          "*tags",
+          "*searchTokens",
+          "[playerColor+result]",
+        ].join(", "),
+      })
+      .upgrade(async (tx) => {
+        const games = tx.table<GameRecord & { id: number }, number>("games");
+        const contents = tx.table<GameContentRecord, number>("gameContents");
+
+        let lastId = 0;
+
+        for (;;) {
+          const batch = await games
+            .where(":id")
+            .above(lastId)
+            .limit(MIGRATION_CHUNK_SIZE)
+            .toArray();
+
+          if (batch.length === 0) break;
+
+          lastId = batch[batch.length - 1].id;
+
+          const texts = await contents.bulkGet(batch.map((game) => game.id));
+
+          await games.bulkPut(
+            batch.map((game, index) => {
+              const headers = texts[index]?.headers ?? {};
+
+              const whiteElo = parseElo(headers.WhiteElo);
+              const blackElo = parseElo(headers.BlackElo);
+
+              return {
+                ...game,
+                whiteElo,
+                blackElo,
+                ...opponentPerspective(game.playerColor, game, { whiteElo, blackElo }),
+              };
+            }),
+          );
+        }
+      });
   }
 }
+
 
 /**
  * Process-wide database handle.

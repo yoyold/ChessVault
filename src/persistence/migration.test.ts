@@ -228,6 +228,58 @@ describe("fresh installation", () => {
   });
 });
 
+describe("version 3 to 4", () => {
+  it("backfills ratings and the opponent from stored headers", async () => {
+    // The headers were kept verbatim on import precisely so a projection added
+    // later can be recovered without asking the user to re-import everything.
+    const name = uniqueName();
+    const legacy = openLegacyDatabase(name);
+    await legacy.open();
+    // Ratings live in the version 1 record's inline headers, which the v1→v2
+    // upgrade moves into their own table before v4 reads them. Writing them
+    // after opening would be too late: every upgrade runs on the first open.
+    await legacy.table("games").add({
+      ...legacyGame(0),
+      white: "Dony, Lukas",
+      black: "Klein, Joerg",
+      playerColor: "white",
+      headers: { WhiteElo: "1437", BlackElo: "1602" },
+    });
+    legacy.close();
+
+    const db = new ChessVaultDatabase(name);
+    await db.open();
+
+    expect(await db.games.get(1)).toMatchObject({
+      whiteElo: 1437,
+      blackElo: 1602,
+      opponent: "Klein, Joerg",
+      opponentElo: 1602,
+      playerElo: 1437,
+    });
+
+    db.close();
+  });
+
+  it("leaves the opponent unset for a game the owner did not play", async () => {
+    const name = uniqueName();
+    const legacy = openLegacyDatabase(name);
+    await legacy.open();
+    await legacy.table("games").add({ ...legacyGame(0), playerColor: null });
+    legacy.close();
+
+    const db = new ChessVaultDatabase(name);
+    await db.open();
+
+    expect(await db.games.get(1)).toMatchObject({
+      opponent: null,
+      opponentElo: null,
+    });
+
+    db.close();
+  });
+});
+
 describe("upgrading across several versions at once", () => {
   it("brings a version 1 database fully up to date", async () => {
     // A user returning after several releases upgrades through every version

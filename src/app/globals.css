@@ -126,5 +126,17 @@
   }
   html {
     @apply font-sans;
+
+    /*
+     * Global interface scale.
+     *
+     * Every size in the interface is expressed in rem, so this one value scales
+     * text, spacing and the board together rather than leaving large text
+     * crammed into small containers.
+     *
+     * Adjust here to taste: 100% is the browser default, 150% is one and a half
+     * times that.
+     */
+    font-size: 150%;
   }
 }

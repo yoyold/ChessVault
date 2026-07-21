@@ -23,14 +23,28 @@ export interface GameFilter {
   /** Inclusive `YYYY-MM-DD` bounds. */
   dateFrom?: string;
   dateTo?: string;
+  /** Inclusive bounds on the opponent's rating. */
+  opponentEloFrom?: number;
+  opponentEloTo?: number;
 }
 
-export type GameSort = "date" | "imported";
+export type GameSort = "date" | "imported" | "opponentElo" | "event";
 
 const SORT_INDEX: Record<GameSort, keyof GameRecord & string> = {
   date: "dateIso",
   imported: "importedAt",
+  opponentElo: "opponentElo",
+  event: "event",
 };
+
+/**
+ * Sort orders that read best ascending.
+ *
+ * Dates and imports are most useful newest-first, but a tournament list reads
+ * alphabetically and ratings read weakest-first when you are looking for the
+ * games that should have been comfortable.
+ */
+const ASCENDING_SORTS = new Set<GameSort>(["event"]);
 
 /**
  * Fields the driving index has already applied, so the in-memory predicate can
@@ -83,6 +97,22 @@ function selectDrivingCollection(
   if (filter.event) {
     applied.add("event");
     return { collection: db.games.where("event").equals(filter.event), applied };
+  }
+
+  if (filter.opponentEloFrom !== undefined || filter.opponentEloTo !== undefined) {
+    applied.add("opponentEloFrom");
+    applied.add("opponentEloTo");
+    return {
+      collection: db.games
+        .where("opponentElo")
+        .between(
+          filter.opponentEloFrom ?? 0,
+          filter.opponentEloTo ?? Number.MAX_SAFE_INTEGER,
+          true,
+          true,
+        ),
+      applied,
+    };
   }
 
   if (filter.dateFrom || filter.dateTo) {
@@ -194,6 +224,19 @@ function buildPredicate(filter: GameFilter, applied: Applied) {
       if (!matches) return false;
     }
 
+    // A game with no known opponent rating cannot be shown to fall inside a
+    // rating range, so it is excluded rather than assumed.
+    if (!applied.has("opponentEloFrom") && filter.opponentEloFrom !== undefined) {
+      if (game.opponentElo === null || game.opponentElo < filter.opponentEloFrom) {
+        return false;
+      }
+    }
+    if (!applied.has("opponentEloTo") && filter.opponentEloTo !== undefined) {
+      if (game.opponentElo === null || game.opponentElo > filter.opponentEloTo) {
+        return false;
+      }
+    }
+
     return true;
   };
 }
@@ -216,8 +259,17 @@ export async function queryGameIds(
   const index = SORT_INDEX[sort];
 
   if (isEmpty(filter)) {
-    // Newest first. `primaryKeys` walks the index without reading records.
-    return (await db.games.orderBy(index).reverse().primaryKeys()) as number[];
+    // `primaryKeys` walks the index without reading a single record.
+    //
+    // Note this omits games where the sort field is unset: IndexedDB does not
+    // index null, so sorting by opponent rating lists only games that have one.
+    // That is the useful behaviour — a rating-sorted list of games with no
+    // rating is noise — and the count shown alongside makes it visible.
+    const collection = db.games.orderBy(index);
+
+    return (ASCENDING_SORTS.has(sort)
+      ? await collection.primaryKeys()
+      : await collection.reverse().primaryKeys()) as number[];
   }
 
   const { collection, applied } = selectDrivingCollection(filter);
@@ -240,6 +292,30 @@ export async function queryGameIds(
  */
 function compareForSort(a: GameRecord, b: GameRecord, sort: GameSort): number {
   if (sort === "imported") return b.importedAt - a.importedAt;
+
+  if (sort === "opponentElo") {
+    // Unknown ratings last: they cannot be placed on the scale, and putting
+    // them at either end would misrepresent the strength of that opposition.
+    if (a.opponentElo === null && b.opponentElo === null) {
+      return b.importedAt - a.importedAt;
+    }
+    if (a.opponentElo === null) return 1;
+    if (b.opponentElo === null) return -1;
+
+    return b.opponentElo - a.opponentElo;
+  }
+
+  if (sort === "event") {
+    const left = a.event ?? "";
+    const right = b.event ?? "";
+
+    if (left === right) return b.importedAt - a.importedAt;
+    // Games with no tournament last, for the same reason as unknown ratings.
+    if (left === "") return 1;
+    if (right === "") return -1;
+
+    return left.localeCompare(right);
+  }
 
   if (a.dateIso === b.dateIso) return b.importedAt - a.importedAt;
 
