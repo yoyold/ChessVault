@@ -5,6 +5,15 @@ import {
   MAX_COMMENT_LENGTH,
   toDisplayComment,
 } from "@/core/chess/pgn/comment-display";
+
+/** Prose of a move's comments, with machine commands and empties removed. */
+function visibleCommentText(comments: readonly string[]): string {
+  return comments
+    .map((comment) => toDisplayComment(comment).text)
+    .filter((text) => text.length > 0)
+    .join(" ")
+    .slice(0, MAX_COMMENT_LENGTH);
+}
 import type { TreeNode } from "@/core/chess/pgn/parse-tree";
 import type { MoveQuality } from "@/core/analysis/move-quality";
 import type { TreePath } from "@/core/chess/pgn/tree-path";
@@ -49,6 +58,7 @@ export function MoveList({ line, currentPath, qualityByPly, onSelect }: MoveList
           path.every((step, i) => step === currentPath[i]);
 
         const mark = QUALITY_MARK[qualityByPly.get(node.ply) ?? "good"];
+        const commentText = visibleCommentText(node.comments);
 
         return (
           <li key={`${node.ply}-${node.san}`} className="flex items-baseline gap-1">
@@ -75,14 +85,11 @@ export function MoveList({ line, currentPath, qualityByPly, onSelect }: MoveList
               {mark ? <span className={mark.className}>{mark.label}</span> : null}
             </button>
 
-            {node.comments.length > 0 ? (
+            {commentText ? (
               // Capped: an unbounded comment from a damaged file can be
               // hundreds of thousands of characters and freezes the page.
               <span className="text-muted-foreground max-w-full text-xs italic">
-                {node.comments
-                  .map((comment) => toDisplayComment(comment).text)
-                  .join(" ")
-                  .slice(0, MAX_COMMENT_LENGTH)}
+                {commentText}
               </span>
             ) : null}
           </li>

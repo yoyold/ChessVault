@@ -247,7 +247,13 @@ export function AnalysisView({ gameId }: { gameId: number }) {
 
 /** Comments and glyphs the annotator attached to the move currently shown. */
 function CurrentMoveAnnotations({ node }: { node: TreeNode }) {
-  if (node.comments.length === 0 && node.nags.length === 0) return null;
+  // Comments holding only machine commands, such as `[%eval 0.15]`, have
+  // nothing to show and must not render an empty panel.
+  const comments = node.comments
+    .map(toDisplayComment)
+    .filter((comment) => comment.text.length > 0);
+
+  if (comments.length === 0 && node.nags.length === 0) return null;
 
   return (
     <section className="rounded-md border p-3 text-sm">
@@ -261,9 +267,7 @@ function CurrentMoveAnnotations({ node }: { node: TreeNode }) {
         </div>
       ) : null}
 
-      {node.comments.map((comment, index) => {
-        const display = toDisplayComment(comment);
-
+      {comments.map((display, index) => {
         return (
           <p key={index} className="text-muted-foreground">
             {display.text}

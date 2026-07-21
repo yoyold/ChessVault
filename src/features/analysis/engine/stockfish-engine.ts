@@ -17,35 +17,175 @@ import {
  */
 const ENGINE_URL = asset("/engine/stockfish-18-lite-single.js");
 
-interface PendingSearch {
+/**
+ * How long to wait for a stopped search to report `bestmove` before giving up.
+ *
+ * Only reached if the engine has died; without a bound, a dead engine would
+ * leave the interface waiting forever rather than reporting a failure.
+ */
+const STOP_TIMEOUT_MS = 5_000;
+
+/** A request waiting for its turn at the engine. */
+interface QueuedJob {
+  request: AnalysisRequest;
+  onProgress?: (analysis: PositionAnalysis) => void;
+  resolve: (analysis: PositionAnalysis) => void;
+  reject: (error: Error) => void;
+}
+
+/** The search currently running, and the results accumulated for it. */
+interface ActiveSearch {
   resolve: (analysis: PositionAnalysis) => void;
   reject: (error: Error) => void;
   onProgress?: (analysis: PositionAnalysis) => void;
   sideToMove: "w" | "b";
   lines: AnalysisLine[];
   depth: number;
+  /** Set when a newer request has superseded this one. */
+  aborted: boolean;
 }
 
 /**
  * Drives Stockfish, compiled to WebAssembly, in a Web Worker.
  *
  * The engine speaks UCI over `postMessage`, one text line per message. Parsing
- * lives in `core/analysis/uci`; this class owns only the protocol handshake,
- * the request lifecycle and worker ownership.
+ * lives in `core/analysis/uci`; this class owns the protocol handshake, the
+ * request lifecycle and worker ownership.
+ *
+ * ## Why requests are pumped through a single loop
+ *
+ * UCI is stateful: `position` and `setoption` may only be sent while the engine
+ * is idle, and `stop` does not make it idle immediately — the search unwinds
+ * and reports `bestmove`, and only then is the engine ready. Sending the next
+ * position early crashes the WebAssembly build with `RuntimeError: unreachable`.
+ *
+ * Waiting for idle inside each request is not enough. Several requests can be
+ * waiting at once — stepping through a game issues one per move — and the
+ * arriving `bestmove` releases all of them, so two would send `position`
+ * together and crash exactly as before.
+ *
+ * All commands are therefore sent from one loop, {@link pump}, which is the
+ * only writer and runs one search at a time. A request arriving while another
+ * is queued replaces it rather than joining a line: when a user skims through
+ * twenty moves, only the position they stop on is worth searching.
  */
 export class StockfishEngine implements EngineService {
   private worker: Worker | null = null;
   private ready: Promise<void> | null = null;
-  private pending: PendingSearch | null = null;
+
+  /** The next request to run. At most one; a newer request supersedes it. */
+  private queued: QueuedJob | null = null;
+
+  /** The search in progress, if any. */
+  private active: ActiveSearch | null = null;
+
+  /** Whether the engine is mid-search and so cannot accept a new position. */
+  private searchActive = false;
+
+  /** Guards the pump loop, so exactly one writer sends commands. */
+  private pumping = false;
+
+  private idleWaiters: (() => void)[] = [];
 
   /**
-   * Options currently applied to the engine.
+   * MultiPV currently applied.
    *
-   * Tracked so MultiPV is only re-sent when it changes: setting an option
-   * forces the engine to discard its hash table, which throws away work that
-   * would otherwise speed up analysis of a related position.
+   * Tracked so it is only re-sent when it changes: setting an option makes the
+   * engine discard its hash table, throwing away work that speeds up analysis
+   * of a related position.
    */
   private appliedMultiPv: number | null = null;
+
+  private disposed = false;
+
+  analyse(
+    request: AnalysisRequest,
+    onProgress?: (analysis: PositionAnalysis) => void,
+  ): Promise<PositionAnalysis> {
+    return new Promise<PositionAnalysis>((resolve, reject) => {
+      if (this.disposed) {
+        reject(new Error("Engine is disposed"));
+        return;
+      }
+
+      // Only the newest queued request is worth running; the one it replaces
+      // was never started, so nothing is wasted by dropping it.
+      this.queued?.reject(new AnalysisAbortedError());
+      this.queued = { request, onProgress, resolve, reject };
+
+      // Ask the running search to wind down so the queue can move on. The
+      // command is safe here because `stop` is valid at any time; `position` is
+      // not, and is only ever sent by the pump.
+      if (this.active) this.active.aborted = true;
+      if (this.searchActive) this.worker?.postMessage("stop");
+
+      void this.pump();
+    });
+  }
+
+  /**
+   * The single writer: runs queued requests one at a time.
+   *
+   * Re-entrant calls return immediately, so however many requests arrive, only
+   * one loop is ever sending commands to the engine.
+   */
+  private async pump(): Promise<void> {
+    if (this.pumping) return;
+    this.pumping = true;
+
+    try {
+      await this.start();
+
+      while (this.queued && !this.disposed) {
+        await this.waitForIdle();
+
+        const job = this.queued;
+        this.queued = null;
+        if (!job) break;
+
+        try {
+          job.resolve(await this.runSearch(job));
+        } catch (error) {
+          job.reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+    } catch (error) {
+      const job = this.queued;
+      this.queued = null;
+      job?.reject(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      this.pumping = false;
+    }
+  }
+
+  private runSearch(job: QueuedJob): Promise<PositionAnalysis> {
+    const worker = this.worker;
+    if (!worker) return Promise.reject(new Error("Engine is disposed"));
+
+    // The side to move decides the sign of every score the engine reports.
+    const sideToMove = job.request.fen.split(" ")[1] === "b" ? "b" : "w";
+
+    return new Promise<PositionAnalysis>((resolve, reject) => {
+      this.active = {
+        resolve,
+        reject,
+        onProgress: job.onProgress,
+        sideToMove,
+        lines: [],
+        depth: 0,
+        aborted: false,
+      };
+
+      if (this.appliedMultiPv !== job.request.multiPv) {
+        worker.postMessage(`setoption name MultiPV value ${job.request.multiPv}`);
+        this.appliedMultiPv = job.request.multiPv;
+      }
+
+      worker.postMessage(`position fen ${job.request.fen}`);
+      worker.postMessage(`go depth ${job.request.depth}`);
+      this.searchActive = true;
+    });
+  }
 
   private async start(): Promise<void> {
     if (this.ready) return this.ready;
@@ -71,6 +211,7 @@ export class StockfishEngine implements EngineService {
 
       worker.addEventListener("message", onHandshake);
       worker.addEventListener("error", (event) => {
+        this.handleEngineFailure(event.message);
         reject(new Error(`Engine failed to start: ${event.message}`));
       });
 
@@ -80,17 +221,44 @@ export class StockfishEngine implements EngineService {
     return this.ready;
   }
 
-  private onMessage = (event: MessageEvent) => {
-    const search = this.pending;
-    if (!search) return;
+  /** Fail everything in flight; the engine cannot be trusted after a crash. */
+  private handleEngineFailure(message: string): void {
+    const search = this.active;
+    this.active = null;
+    this.searchActive = false;
+    this.releaseIdleWaiters();
 
+    search?.reject(new Error(`Engine error: ${message}`));
+  }
+
+  private releaseIdleWaiters(): void {
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    for (const resolve of waiters) resolve();
+  }
+
+  private onMessage = (event: MessageEvent) => {
     const line = String(event.data);
 
     if (isSearchComplete(line)) {
-      this.pending = null;
-      search.resolve(this.snapshot(search));
+      // Handled even when the search was abandoned: an abandoned search still
+      // reports `bestmove`, and that report is what makes the engine idle.
+      this.searchActive = false;
+
+      const search = this.active;
+      this.active = null;
+
+      if (search) {
+        if (search.aborted) search.reject(new AnalysisAbortedError());
+        else search.resolve(this.snapshot(search));
+      }
+
+      this.releaseIdleWaiters();
       return;
     }
+
+    const search = this.active;
+    if (!search || search.aborted) return;
 
     const parsed = parseInfoLine(line, search.sideToMove);
     if (!parsed) return;
@@ -101,7 +269,7 @@ export class StockfishEngine implements EngineService {
     search.onProgress?.(this.snapshot(search));
   };
 
-  private snapshot(search: PendingSearch): PositionAnalysis {
+  private snapshot(search: ActiveSearch): PositionAnalysis {
     return {
       depth: search.depth,
       lines: [...search.lines],
@@ -109,58 +277,48 @@ export class StockfishEngine implements EngineService {
     };
   }
 
-  async analyse(
-    request: AnalysisRequest,
-    onProgress?: (analysis: PositionAnalysis) => void,
-  ): Promise<PositionAnalysis> {
-    await this.start();
+  /** Wait until the engine can accept a new position, stopping any search first. */
+  private async waitForIdle(): Promise<void> {
+    if (!this.searchActive) return;
 
-    const worker = this.worker;
-    if (!worker) throw new Error("Engine is disposed");
+    this.worker?.postMessage("stop");
 
-    // Abandon anything already running. Calling this on every move as a user
-    // clicks through a game is the normal case, not an edge case.
-    this.stop();
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        // The engine has not answered; treat it as idle rather than hanging.
+        this.searchActive = false;
+        resolve();
+      }, STOP_TIMEOUT_MS);
 
-    // The side to move decides the sign of every score the engine reports.
-    const sideToMove = request.fen.split(" ")[1] === "b" ? "b" : "w";
-
-    const result = new Promise<PositionAnalysis>((resolve, reject) => {
-      this.pending = {
-        resolve,
-        reject,
-        onProgress,
-        sideToMove,
-        lines: [],
-        depth: 0,
-      };
+      this.idleWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
-
-    if (this.appliedMultiPv !== request.multiPv) {
-      worker.postMessage(`setoption name MultiPV value ${request.multiPv}`);
-      this.appliedMultiPv = request.multiPv;
-    }
-
-    worker.postMessage(`position fen ${request.fen}`);
-    worker.postMessage(`go depth ${request.depth}`);
-
-    return result;
   }
 
   stop(): void {
-    const search = this.pending;
-    if (!search) return;
+    const job = this.queued;
+    this.queued = null;
+    job?.reject(new AnalysisAbortedError());
 
-    this.pending = null;
-    this.worker?.postMessage("stop");
-    search.reject(new AnalysisAbortedError());
+    if (this.active) this.active.aborted = true;
+    if (this.searchActive) this.worker?.postMessage("stop");
   }
 
   dispose(): void {
+    this.disposed = true;
     this.stop();
+
+    const search = this.active;
+    this.active = null;
+    search?.reject(new AnalysisAbortedError());
+
+    this.releaseIdleWaiters();
     this.worker?.terminate();
     this.worker = null;
     this.ready = null;
+    this.searchActive = false;
     this.appliedMultiPv = null;
   }
 }
