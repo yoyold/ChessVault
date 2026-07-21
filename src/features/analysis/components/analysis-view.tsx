@@ -135,7 +135,17 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     // a column that asks for more than it receives makes the board measure one
     // width and render at another.
     <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-      <div className="flex w-full min-w-0 flex-col gap-3">
+      {/*
+        The board is square, so capping its *width* in viewport-height units
+        also caps its height — which is what keeps it on screen. The subtraction
+        leaves room for the header, the page heading and the move controls
+        beneath it, so the whole column fits without scrolling.
+
+        This is a max-width, not a width: the element still takes whatever the
+        column actually gives it, so the board never measures one size and
+        renders at another.
+      */}
+      <div className="flex w-full min-w-0 max-w-[min(100%,calc(100svh-16rem))] flex-col gap-3">
         <AnalysisBoard
           fen={current.fen}
           orientation={game.record.playerColor === "black" ? "black" : "white"}

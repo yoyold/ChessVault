@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { GameRecord } from "@/core/domain/game";
+import { outcomeFor, type GameOutcome } from "@/core/domain/game-outcome";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -15,9 +16,24 @@ interface GameListProps {
   loading: boolean;
   selectedId: number | null;
   onSelect: (id: number) => void;
+  /** Opening a game outright, rather than just selecting it. */
+  onOpen: (id: number) => void;
   /** Reports which rows are on screen so their records can be fetched. */
   onVisibleRangeChange: (indexes: number[]) => void;
 }
+
+/**
+ * Row tints by outcome, from the owner's point of view.
+ *
+ * Applied only when the row is not selected: the selection needs to remain the
+ * strongest signal in the list, and a tint competing with it makes the current
+ * row ambiguous.
+ */
+const OUTCOME_TINT: Record<GameOutcome, string> = {
+  win: "bg-result-win/45 hover:bg-result-win/65",
+  draw: "bg-result-draw/45 hover:bg-result-draw/65",
+  loss: "bg-result-loss/45 hover:bg-result-loss/65",
+};
 
 /**
  * Virtualised list of games.
@@ -36,6 +52,7 @@ export function GameList({
   loading,
   selectedId,
   onSelect,
+  onOpen,
   onVisibleRangeChange,
 }: GameListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -89,6 +106,7 @@ export function GameList({
                   game={game}
                   selected={id === selectedId}
                   onSelect={() => onSelect(id)}
+                  onOpen={() => onOpen(id)}
                 />
               ) : (
                 // The row exists in the ordered id list but its record has not
@@ -114,19 +132,28 @@ function GameRow({
   game,
   selected,
   onSelect,
+  onOpen,
 }: {
   game: GameRecord;
   selected: boolean;
   onSelect: () => void;
+  onOpen: () => void;
 }) {
+  const outcome = outcomeFor(game.playerColor, game.result);
+
   return (
     <button
       type="button"
       onClick={onSelect}
+      onDoubleClick={onOpen}
       aria-current={selected ? "true" : undefined}
       className={cn(
         "flex h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition-colors",
-        selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+        selected
+          ? "bg-accent text-accent-foreground"
+          : outcome
+            ? OUTCOME_TINT[outcome]
+            : "hover:bg-accent/50",
       )}
     >
       <span className="min-w-0 flex-1 truncate">

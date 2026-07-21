@@ -51,6 +51,11 @@ export function GamesBrowser() {
     router.replace(id === null ? "/games/" : `/games/?id=${id}`, { scroll: false });
   };
 
+  // Double-click opens the game for analysis. `push` here, unlike selection:
+  // this is a deliberate move to another page, so the back button should return
+  // to the list.
+  const open = (id: number) => router.push(`/analysis/?game=${id}`);
+
   return (
     <div className="flex h-[calc(100svh-7rem)] flex-col gap-4">
       <GameFilters
@@ -69,6 +74,7 @@ export function GamesBrowser() {
             loading={loading}
             selectedId={selectedId}
             onSelect={select}
+            onOpen={open}
             onVisibleRangeChange={handleVisibleRangeChange}
           />
         </div>
