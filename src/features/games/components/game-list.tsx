@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { GameRecord } from "@/core/domain/game";
-import { outcomeFor, type GameOutcome } from "@/core/domain/game-outcome";
+import { ResultBadge } from "@/components/result-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -21,19 +21,6 @@ interface GameListProps {
   /** Reports which rows are on screen so their records can be fetched. */
   onVisibleRangeChange: (indexes: number[]) => void;
 }
-
-/**
- * Row tints by outcome, from the owner's point of view.
- *
- * Applied only when the row is not selected: the selection needs to remain the
- * strongest signal in the list, and a tint competing with it makes the current
- * row ambiguous.
- */
-const OUTCOME_TINT: Record<GameOutcome, string> = {
-  win: "bg-result-win/45 hover:bg-result-win/65",
-  draw: "bg-result-draw/45 hover:bg-result-draw/65",
-  loss: "bg-result-loss/45 hover:bg-result-loss/65",
-};
 
 /**
  * Virtualised list of games.
@@ -121,13 +108,6 @@ export function GameList({
   );
 }
 
-const RESULT_LABEL: Record<string, string> = {
-  "1-0": "1–0",
-  "0-1": "0–1",
-  "1/2-1/2": "½–½",
-  "*": "*",
-};
-
 function GameRow({
   game,
   selected,
@@ -139,8 +119,6 @@ function GameRow({
   onSelect: () => void;
   onOpen: () => void;
 }) {
-  const outcome = outcomeFor(game.playerColor, game.result);
-
   return (
     <button
       type="button"
@@ -148,12 +126,10 @@ function GameRow({
       onDoubleClick={onOpen}
       aria-current={selected ? "true" : undefined}
       className={cn(
+        // Rows stay neutral: the result is carried by its badge alone, so the
+        // selection remains the only thing that changes a row's background.
         "flex h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition-colors",
-        selected
-          ? "bg-accent text-accent-foreground"
-          : outcome
-            ? OUTCOME_TINT[outcome]
-            : "hover:bg-accent/50",
+        selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
       )}
     >
       <span className="min-w-0 flex-1 truncate">
@@ -168,8 +144,8 @@ function GameRow({
         ) : null}
       </span>
 
-      <span className="text-muted-foreground w-12 shrink-0 text-center tabular-nums">
-        {RESULT_LABEL[game.result] ?? game.result}
+      <span className="flex w-16 shrink-0 justify-center">
+        <ResultBadge result={game.result} playerColor={game.playerColor} />
       </span>
 
       <span className="text-muted-foreground hidden w-32 shrink-0 truncate lg:block">

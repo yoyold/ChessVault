@@ -28,7 +28,9 @@ import { useEngine } from "../hooks/use-engine";
 import { useEngineAnalysis, type EngineSettings } from "../hooks/use-engine-analysis";
 import { useFullGameAnalysis } from "../hooks/use-full-game-analysis";
 import { EnginePanel } from "./engine-panel";
+import { EvalBar } from "./eval-bar";
 import { EvalGraph } from "./eval-graph";
+import { GameHeader } from "./game-header";
 import { GameReportSummary } from "./game-report-summary";
 import { MoveList } from "./move-list";
 
@@ -130,6 +132,14 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     if (next) setPath(next);
   };
 
+  // The bar prefers the running analysis so it moves as the engine thinks, and
+  // falls back to a stored evaluation so a position analysed earlier still
+  // shows something the moment it is opened.
+  const liveScore =
+    analysisState.analysis?.lines[0]?.score ??
+    storedEvaluations?.get(current.key)?.lines[0]?.score ??
+    null;
+
   return (
     // Proportional columns rather than a fixed or viewport-derived board width:
     // a column that asks for more than it receives makes the board measure one
@@ -146,11 +156,25 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         renders at another.
       */}
       <div className="flex w-full min-w-0 max-w-[min(100%,calc(100svh-16rem))] flex-col gap-3">
-        <AnalysisBoard
-          fen={current.fen}
-          orientation={game.record.playerColor === "black" ? "black" : "white"}
-          lastMoveUci={current.uci}
-        />
+        <GameHeader game={game.record} />
+
+        {/*
+          The bar sits in the same row as the board and stretches to it, so the
+          two stay aligned at any board size.
+        */}
+        <div className="flex items-stretch gap-2">
+          <EvalBar
+            score={liveScore}
+            orientation={game.record.playerColor === "black" ? "black" : "white"}
+          />
+          <div className="min-w-0 flex-1">
+            <AnalysisBoard
+              fen={current.fen}
+              orientation={game.record.playerColor === "black" ? "black" : "white"}
+              lastMoveUci={current.uci}
+            />
+          </div>
+        </div>
 
         <div className="flex items-center gap-1">
           <Button variant="outline" size="icon" aria-label="First move" onClick={() => setPath([])}>
@@ -190,6 +214,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
 
         <EvalGraph
           scores={graphScores}
+          moves={mainLine.map((node) => node.san)}
           // The marker only applies while reading the mainline; inside a
           // sideline there is no position on the game's own graph.
           currentPly={safePath.every((step) => step === 0) ? current.ply : -1}
