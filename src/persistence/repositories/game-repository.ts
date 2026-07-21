@@ -162,6 +162,77 @@ async function insertOccurrences(
   await db.gamePositions.bulkAdd(occurrences);
 }
 
+/**
+ * Write an edited or newly created game.
+ *
+ * The PGN is the source of truth, so everything else is rebuilt from it rather
+ * than patched alongside it: metadata is re-projected and the position rows are
+ * replaced. Editing a move changes which positions the game reaches, and
+ * leaving the old rows behind would make the game findable by positions it no
+ * longer contains.
+ *
+ * Fields the user owns rather than the file — tags, notes, and when the game
+ * was first imported — are carried across, since re-projecting from PGN cannot
+ * know them.
+ *
+ * @param gameId Existing game to overwrite, or undefined to create a new one.
+ * @returns The id written.
+ */
+export async function saveGame(
+  pgn: string,
+  positions: readonly ParsedPosition[],
+  record: GameRecord,
+  content: Omit<GameContentRecord, "gameId">,
+  gameId?: number,
+): Promise<number> {
+  return db.transaction(
+    "rw",
+    [db.games, db.gameContents, db.positions, db.gamePositions],
+    async () => {
+      const existing = gameId === undefined ? undefined : await db.games.get(gameId);
+
+      const merged: GameRecord = {
+        ...record,
+        ...(existing
+          ? {
+              id: existing.id,
+              tags: existing.tags,
+              notes: existing.notes,
+              importedAt: existing.importedAt,
+            }
+          : {}),
+      };
+
+      const id =
+        existing?.id !== undefined
+          ? ((await db.games.put(merged)) as number)
+          : ((await db.games.add(merged)) as number);
+
+      await db.gameContents.put({ gameId: id, ...content });
+
+      // Replaced wholesale rather than diffed: an edit can insert, remove or
+      // reorder moves, and reconciling that is more error-prone than rewriting
+      // a few dozen rows.
+      await db.gamePositions.where("gameId").equals(id).delete();
+
+      const entry: GameWithPositions = { record: merged, content, positions };
+      await Promise.all([
+        insertNewPositions([entry]),
+        db.gamePositions.bulkAdd(
+          positions.map((position) => ({
+            gameId: id,
+            ply: position.ply,
+            key: position.key,
+            san: position.san,
+          })),
+        ),
+      ]);
+
+      return id;
+    },
+  );
+}
+
 /** A game together with its text, as needed by the detail view. */
 export interface FullGame {
   record: GameRecord;

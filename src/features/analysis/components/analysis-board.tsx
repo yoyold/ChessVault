@@ -54,6 +54,14 @@ export interface AnalysisBoardProps {
   orientation: "white" | "black";
   /** The move that produced this position, in UCI notation, or null at the start. */
   lastMoveUci: string | null;
+  /**
+   * Called when a piece is dropped on a legal square.
+   *
+   * Supplying this turns dragging on. Playing a move on the board is how a
+   * variation gets written, so the board is only interactive when the caller is
+   * prepared to record what is played.
+   */
+  onMove?: (from: string, to: string) => boolean;
 }
 
 /** Split a UCI move into its squares, tolerating a promotion suffix. */
@@ -63,7 +71,12 @@ function squaresOf(uci: string | null): { from: string; to: string } | null {
   return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
 }
 
-export function AnalysisBoard({ fen, orientation, lastMoveUci }: AnalysisBoardProps) {
+export function AnalysisBoard({
+  fen,
+  orientation,
+  lastMoveUci,
+  onMove,
+}: AnalysisBoardProps) {
   const lastMove = squaresOf(lastMoveUci);
 
   // Both a highlight and an arrow: the highlight shows where the piece came
@@ -85,8 +98,11 @@ export function AnalysisBoard({ fen, orientation, lastMoveUci }: AnalysisBoardPr
       options={{
         position: fen,
         boardOrientation: orientation,
-        // The board is for reading a finished game, not for playing moves.
-        allowDragging: false,
+        allowDragging: onMove !== undefined,
+        onPieceDrop: ({ sourceSquare, targetSquare }) =>
+          targetSquare !== null && onMove !== undefined
+            ? onMove(sourceSquare, targetSquare)
+            : false,
         // Drawing arrows and highlights by hand is how analysis is discussed;
         // right-drag on the board, as in every other chess interface.
         allowDrawingArrows: true,

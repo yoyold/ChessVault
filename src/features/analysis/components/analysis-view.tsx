@@ -4,7 +4,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, SkipBack, SkipForward } from "lucide-react";
 import { formatMoveNumber, formatNag } from "@/core/chess/pgn/game-timeline";
-import { toDisplayComment } from "@/core/chess/pgn/comment-display";
 import { mainline, parseGameTree, type TreeNode } from "@/core/chess/pgn/parse-tree";
 import {
   alternativesAt,
@@ -18,12 +17,26 @@ import {
 } from "@/core/chess/pgn/tree-path";
 import type { Score } from "@/core/analysis/types";
 import type { MoveQuality } from "@/core/analysis/move-quality";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getFullGame } from "@/persistence/repositories/game-repository";
 import { getEvaluations } from "@/persistence/repositories/evaluation-repository";
+import { Chess } from "chess.js";
+import { toast } from "sonner";
+import { Save } from "lucide-react";
+import {
+  addMove,
+  promoteVariation,
+  pathAfterPromotion,
+  removeNode,
+  withComments,
+  withNags,
+} from "@/core/chess/pgn/edit-tree";
+import { persistGame } from "@/features/games/edit/save-game";
+import { useSettings } from "@/features/shell/use-settings";
 import { useShortcut } from "@/features/shell/use-shortcut";
 import { AnalysisBoard } from "./analysis-board";
+import { AnnotationEditor } from "./annotation-editor";
+import { EditDetailsDialog } from "./edit-details-dialog";
 import { useEngine } from "../hooks/use-engine";
 import { useEngineAnalysis, type EngineSettings } from "../hooks/use-engine-analysis";
 import { useFullGameAnalysis } from "../hooks/use-full-game-analysis";
@@ -39,6 +52,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
 
   const [path, setPath] = useState<number[]>([]);
   const [settings, setSettings] = useState<EngineSettings>({ depth: 16, multiPv: 3 });
+  const { playerNames } = useSettings();
 
   const game = useLiveQuery(() => getFullGame(gameId), [gameId]);
 
@@ -53,7 +67,18 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     }
   }, [game]);
 
-  const root = tree?.root ?? null;
+  /**
+   * Unsaved edits, tagged with the game they belong to.
+   *
+   * Tagging is what makes navigating to another game discard them automatically
+   * rather than applying one game's annotations to another.
+   */
+  const [draft, setDraft] = useState<{ gameId: number; root: TreeNode } | null>(null);
+
+  const dirty = draft?.gameId === gameId;
+  const root = dirty ? draft.root : (tree?.root ?? null);
+
+  const edit = (next: TreeNode) => setDraft({ gameId, root: next });
 
   // A path is only meaningful against the tree it was made for. Clamping guards
   // the moment the game changes while a deep path is still selected.
@@ -140,6 +165,55 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     storedEvaluations?.get(current.key)?.lines[0]?.score ??
     null;
 
+  /** Play a move on the board, adding it as a continuation or a variation. */
+  const playMove = (from: string, to: string): boolean => {
+    const board = new Chess(current.fen);
+
+    let san: string;
+    try {
+      // Promotion defaults to a queen. Underpromotion is rare enough that
+      // asking every time would cost more than it saves; it can still be
+      // entered by editing the PGN.
+      san = board.move({ from, to, promotion: "q" }).san;
+    } catch {
+      return false;
+    }
+
+    const result = addMove(root, safePath, san);
+    if (!result) return false;
+
+    if (result.added) edit(result.root);
+    setPath(result.path);
+
+    return true;
+  };
+
+  /**
+   * Write the game, optionally with replaced tag pairs.
+   *
+   * Editing details saves immediately rather than staging: the header shown
+   * above the board reads from the stored record, so a staged change would
+   * leave the dialog and the page disagreeing until some later save.
+   */
+  const save = async (overrideHeaders?: Record<string, string>) => {
+    if (!tree || !root) return;
+
+    try {
+      await persistGame({
+        headers: overrideHeaders ?? tree.headers,
+        root,
+        ownerNames: playerNames,
+        gameId,
+      });
+      setDraft(null);
+      toast.success("Game saved");
+    } catch (error) {
+      toast.error("Could not save the game", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
+
   return (
     // Proportional columns rather than a fixed or viewport-derived board width:
     // a column that asks for more than it receives makes the board measure one
@@ -156,7 +230,25 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         renders at another.
       */}
       <div className="flex w-full min-w-0 max-w-[min(100%,calc(100svh-16rem))] flex-col gap-3">
-        <GameHeader game={game.record} />
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <GameHeader game={game.record} />
+          </div>
+
+          <EditDetailsDialog
+            headers={tree.headers}
+            onSave={(next) => void save(next)}
+          />
+
+          {dirty ? (
+            // Shown only when there is something to save, so its presence is
+            // itself the signal that edits are pending.
+            <Button size="sm" className="shrink-0 gap-2" onClick={() => void save()}>
+              <Save className="size-4" />
+              Save
+            </Button>
+          ) : null}
+        </div>
 
         {/*
           The bar sits in the same row as the board and stretches to it, so the
@@ -172,6 +264,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
               fen={current.fen}
               orientation={game.record.playerColor === "black" ? "black" : "white"}
               lastMoveUci={current.uci}
+              onMove={playMove}
             />
           </div>
         </div>
@@ -221,7 +314,22 @@ export function AnalysisView({ gameId }: { gameId: number }) {
           onSelectPly={(ply) => setPath(Array(ply).fill(0))}
         />
 
-        <CurrentMoveAnnotations node={current} />
+        <AnnotationEditor
+          // Keyed by path so moving to another move remounts the editor with
+          // that move's comment, rather than carrying the previous draft over.
+          key={safePath.join("-")}
+          node={current}
+          onCommentsChange={(comments) => edit(withComments(root, safePath, comments))}
+          onNagsChange={(nags) => edit(withNags(root, safePath, nags))}
+          onDelete={
+            safePath.length > 0
+              ? () => {
+                  edit(removeNode(root, safePath));
+                  setPath(safePath.slice(0, -1));
+                }
+              : undefined
+          }
+        />
 
         {alternatives.length > 0 ? (
           <section className="flex flex-wrap items-center gap-2 text-sm">
@@ -238,6 +346,23 @@ export function AnalysisView({ gameId }: { gameId: number }) {
               </Button>
             ))}
           </section>
+        ) : null}
+
+        {safePath.length > 0 && safePath[safePath.length - 1] !== 0 ? (
+          // Only offered inside a sideline: promoting the main line to itself
+          // is meaningless, and the button would be permanently present and
+          // permanently inert.
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => {
+              edit(promoteVariation(root, safePath));
+              setPath(pathAfterPromotion(safePath));
+            }}
+          >
+            Promote to main line
+          </Button>
         ) : null}
 
         {tree.droppedVariations > 0 ? (
@@ -298,47 +423,5 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         />
       </div>
     </div>
-  );
-}
-
-/** Comments and glyphs the annotator attached to the move currently shown. */
-function CurrentMoveAnnotations({ node }: { node: TreeNode }) {
-  // Comments holding only machine commands, such as `[%eval 0.15]`, have
-  // nothing to show and must not render an empty panel.
-  const comments = node.comments
-    .map(toDisplayComment)
-    .filter((comment) => comment.text.length > 0);
-
-  if (comments.length === 0 && node.nags.length === 0) return null;
-
-  return (
-    <section className="rounded-md border p-3 text-sm">
-      {node.nags.length > 0 ? (
-        <div className="mb-1 flex gap-1">
-          {node.nags.map((nag) => (
-            <Badge key={nag} variant="secondary" className="text-xs">
-              {formatNag(nag)}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-
-      {comments.map((display, index) => {
-        return (
-          <p key={index} className="text-muted-foreground">
-            {display.text}
-            {display.truncatedBy > 0 ? (
-              // Said plainly rather than trailing off: the comment is intact in
-              // the stored PGN, only its display is bounded.
-              <span className="text-xs italic">
-                {" "}
-                … {display.truncatedBy.toLocaleString()} further characters not
-                shown
-              </span>
-            ) : null}
-          </p>
-        );
-      })}
-    </section>
   );
 }
