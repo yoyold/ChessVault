@@ -133,26 +133,22 @@ describe("single filters", () => {
     expect(await queryGameIds({ timeControl: "600+0" })).toHaveLength(1);
   });
 
-  it("matches text by prefix across indexed fields", async () => {
+  it("matches an opponent by the derived opponent field", async () => {
+    // Not "either player": this filter answers "who did I play against", which
+    // free-text search over both names cannot express.
     await seed(
-      game({ searchTokens: ["carlsen", "magnus"] }),
-      game({ searchTokens: ["firouzja", "alireza"] }),
+      game({ opponent: "Ding, Liren" }),
+      game({ opponent: "Carlsen, Magnus" }),
+      game({ opponent: null }),
     );
 
-    expect(await queryGameIds({ text: "carl" })).toHaveLength(1);
-    expect(await queryGameIds({ text: "CARL" })).toHaveLength(1);
+    expect(await queryGameIds({ opponent: "ding" })).toHaveLength(1);
   });
 
-  it("matches an opponent on either side of the board", async () => {
-    await seed(
-      game({ white: "Ding, Liren", black: "Other" }),
-      game({ white: "Other", black: "Ding, Liren" }),
-      game({ white: "Someone", black: "Else" }),
-    );
-
-    expect(await queryGameIds({ opponent: "ding" })).toHaveLength(2);
+  it("excludes games with no attributed opponent from an opponent filter", async () => {
+    await seed(game({ opponent: null }));
+    expect(await queryGameIds({ opponent: "anyone" })).toEqual([]);
   });
-
   describe("date ranges", () => {
     beforeEach(async () => {
       await seed(
@@ -180,6 +176,64 @@ describe("single filters", () => {
       expect(await queryGameIds({ dateFrom: "2000-01-01" })).toHaveLength(3);
     });
   });
+});
+
+describe("player search", () => {
+  beforeEach(async () => {
+    await seed(
+      game({ white: "Klein, Tristan", black: "Dony, Lukas" }),
+      game({ white: "Klemm, Julian", black: "Dony, Lukas" }),
+      game({ white: "Dony, Lukas", black: "Weyrich, Peter" }),
+    );
+  });
+
+  it("matches a name anywhere in it, not only at the start", async () => {
+    // Prefix matching missed this entirely: "lein" returned nothing at all,
+    // even though two players are called Klein.
+    const found = await getGamesByIds(await queryGameIds({ text: "lein" }));
+    expect(found.map((g) => g.white)).toEqual(["Klein, Tristan"]);
+  });
+
+  it("is case-insensitive", async () => {
+    expect(await queryGameIds({ text: "KLEIN" })).toHaveLength(1);
+    expect(await queryGameIds({ text: "klein" })).toHaveLength(1);
+  });
+
+  it("distinguishes similar names once enough is typed", async () => {
+    // "kle" legitimately matches both; "klein" must not match Klemm.
+    expect(await queryGameIds({ text: "kle" })).toHaveLength(2);
+    expect(await queryGameIds({ text: "klein" })).toHaveLength(1);
+  });
+
+  it("narrows with each additional term rather than widening", async () => {
+    expect(await queryGameIds({ text: "dony" })).toHaveLength(3);
+    expect(await queryGameIds({ text: "dony klein" })).toHaveLength(1);
+  });
+
+  it("searches both sides of the board", async () => {
+    expect(await queryGameIds({ text: "weyrich" })).toHaveLength(1);
+  });
+
+  it("does not match a name that appears only in the tournament title", async () => {
+    // A real collection has an event named "…: R5 - Klemm". Indexing event
+    // names alongside players made a search for a player match games he never
+    // played in.
+    await seed(
+      game({
+        white: "Someone",
+        black: "Else",
+        event: "Pfälzischer Schachkongress 2025: R5 - Klemm",
+      }),
+    );
+
+    const found = await getGamesByIds(await queryGameIds({ text: "klemm" }));
+    expect(found.map((g) => g.white)).toEqual(["Klemm, Julian"]);
+  });
+
+  it("ignores a query of only whitespace", async () => {
+    expect(await queryGameIds({ text: "   " })).toHaveLength(3);
+  });
+
 });
 
 describe("opponent rating", () => {
@@ -261,9 +315,9 @@ describe("combined filters", () => {
 
   it("combines a text search with other filters", async () => {
     await seed(
-      game({ searchTokens: ["carlsen"], result: "1-0" }),
-      game({ searchTokens: ["carlsen"], result: "0-1" }),
-      game({ searchTokens: ["firouzja"], result: "1-0" }),
+      game({ white: "Carlsen, Magnus", result: "1-0" }),
+      game({ white: "Carlsen, Magnus", result: "0-1" }),
+      game({ white: "Firouzja, Alireza", result: "1-0" }),
     );
 
     expect(await queryGameIds({ text: "carlsen", result: "1-0" })).toHaveLength(1);

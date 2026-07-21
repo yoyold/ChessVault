@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveSettings } from "@/lib/settings";
+import { reattributeGames } from "@/features/games/edit/reattribute-games";
 import { useSettings } from "./use-settings";
 
 /**
@@ -64,6 +66,8 @@ export function PlayerNamesSetting() {
         </Button>
       </form>
 
+      <ReattributeButton playerNames={playerNames} />
+
       {playerNames.length > 0 ? (
         <ul className="flex flex-wrap gap-2">
           {playerNames.map((name) => (
@@ -92,5 +96,56 @@ export function PlayerNamesSetting() {
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Reapply the names above to games already in the database.
+ *
+ * Attribution is decided when a game is imported. Games imported before a name
+ * was configured keep no colour — and therefore no opponent, no rating and no
+ * win or loss — however the settings change afterwards. Nothing in those files
+ * is wrong, so re-importing would not help; only the projection needs redoing.
+ */
+function ReattributeButton({ playerNames }: { playerNames: string[] }) {
+  const [running, setRunning] = useState(false);
+
+  async function run() {
+    setRunning(true);
+
+    try {
+      const { examined, updated } = await reattributeGames(playerNames);
+
+      toast.success(
+        updated === 0
+          ? `No changes — all ${examined} games were already attributed`
+          : `Updated ${updated} of ${examined} games`,
+      );
+    } catch (error) {
+      toast.error("Could not update games", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit gap-2"
+        disabled={running}
+        onClick={() => void run()}
+      >
+        <RefreshCw className={running ? "size-4 animate-spin" : "size-4"} />
+        {running ? "Updating…" : "Apply to existing games"}
+      </Button>
+      <p className="text-muted-foreground text-xs">
+        Games imported before these names were set show no result colour. This
+        reapplies the names without re-importing anything.
+      </p>
+    </div>
   );
 }

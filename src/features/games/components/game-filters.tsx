@@ -26,13 +26,12 @@ const SELECT_CLASS =
 /** Options are read from the data, so only values actually present are offered. */
 function useFilterOptions() {
   return useLiveQuery(async () => {
-    const [ecos, events, timeControls, tags] = await Promise.all([
+    const [ecos, events, tags] = await Promise.all([
       distinctValues("eco"),
       distinctValues("event"),
-      distinctValues("timeControl"),
       distinctTags(),
     ]);
-    return { ecos, events, timeControls, tags };
+    return { ecos, events, tags };
   });
 }
 
@@ -64,11 +63,16 @@ export function GameFilters({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
+        {/*
+          Players only. Tournament and opening have their own controls, and
+          including them here meant a player search also matched games where the
+          name appeared in a tournament title.
+        */}
         <Input
           value={filter.text ?? ""}
           onChange={(event) => update({ text: event.target.value })}
-          placeholder="Search players, events, openings…"
-          aria-label="Search games"
+          placeholder="Search players…"
+          aria-label="Search players"
           className="max-w-xs"
         />
 
@@ -132,20 +136,6 @@ export function GameFilters({
           {options?.events.map((name) => (
             <option key={name} value={name}>
               {name}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className={SELECT_CLASS}
-          value={filter.timeControl ?? ""}
-          aria-label="Filter by time control"
-          onChange={(event) => update({ timeControl: event.target.value })}
-        >
-          <option value="">Any time control</option>
-          {options?.timeControls.map((tc) => (
-            <option key={tc} value={tc}>
-              {tc}
             </option>
           ))}
         </select>

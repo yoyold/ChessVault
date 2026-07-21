@@ -9,7 +9,7 @@ import { db } from "@/persistence/db";
 type GameCollection = ReturnType<typeof db.games.toCollection>;
 
 export interface GameFilter {
-  /** Prefix match against the token index, covering players, event, site and opening. */
+  /** Substring match against both players' names. Every whitespace-separated term must match. */
   text?: string;
   eco?: string;
   opening?: string;
@@ -71,18 +71,6 @@ function selectDrivingCollection(
   filter: GameFilter,
 ): { collection: GameCollection; applied: Applied } {
   const applied: Applied = new Set();
-
-  if (filter.text) {
-    applied.add("text");
-    // Stored tokens are already lowercased, so a lowercased prefix matches
-    // through the index rather than through a case-insensitive scan.
-    return {
-      collection: db.games
-        .where("searchTokens")
-        .startsWith(filter.text.toLowerCase()),
-      applied,
-    };
-  }
 
   if (filter.tag) {
     applied.add("tag");
@@ -173,6 +161,32 @@ function selectDrivingCollection(
   return { collection: db.games.toCollection(), applied };
 }
 
+/**
+ * Whether the free-text query matches a game.
+ *
+ * Matching is on **substrings of the players' names**, not on prefixes of
+ * indexed tokens as it was originally.
+ *
+ * The index-driven version was faster but wrong in two ways a user notices.
+ * Typing part of a name matched every name starting with those letters, so
+ * "Kle" produced Klemm alongside Klein. And because the index covered event and
+ * opening names too, searching for a player matched games where that name
+ * appeared only in the tournament title — one real collection has an event
+ * called "Pfälzischer Schachkongress 2025: R5 - Klemm", which matched a player
+ * search for Klemm in games he never played.
+ *
+ * Every term must match, so a second word narrows rather than widens: "klein
+ * tristan" finds the game against that particular Klein.
+ */
+function matchesText(game: GameRecord, query: string): boolean {
+  const terms = query.toLowerCase().split(/\s+/).filter((term) => term !== "");
+  if (terms.length === 0) return true;
+
+  const haystack = `${game.white} ${game.black}`.toLowerCase();
+
+  return terms.every((term) => haystack.includes(term));
+}
+
 /** Predicate for every filter the driving index did not already apply. */
 function buildPredicate(filter: GameFilter, applied: Applied) {
   return (game: GameRecord): boolean => {
@@ -209,19 +223,14 @@ function buildPredicate(filter: GameFilter, applied: Applied) {
       if (game.dateIso === "" || game.dateIso > filter.dateTo) return false;
     }
 
-    if (!applied.has("text") && filter.text) {
-      const needle = filter.text.toLowerCase();
-      if (!game.searchTokens.some((token) => token.startsWith(needle))) return false;
-    }
+    if (filter.text && !matchesText(game, filter.text)) return false;
 
     if (filter.opponent) {
-      // Either side: the opponent's colour is not known in advance, and for a
-      // game the owner did not play, "opponent" simply means either player.
+      // The derived opponent, not either player: this filter asks "who did I
+      // play against", which free-text search over both names cannot express.
+      // A game with no attributed opponent cannot answer it and is excluded.
       const needle = filter.opponent.toLowerCase();
-      const matches =
-        game.white.toLowerCase().includes(needle) ||
-        game.black.toLowerCase().includes(needle);
-      if (!matches) return false;
+      if (!game.opponent?.toLowerCase().includes(needle)) return false;
     }
 
     // A game with no known opponent rating cannot be shown to fall inside a
