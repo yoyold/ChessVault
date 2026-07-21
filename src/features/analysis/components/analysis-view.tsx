@@ -4,11 +4,23 @@ import { Chessboard } from "react-chessboard";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, SkipBack, SkipForward } from "lucide-react";
-import { buildTimeline, formatMoveNumber } from "@/core/chess/pgn/game-timeline";
+import { formatMoveNumber, formatNag } from "@/core/chess/pgn/game-timeline";
+import { toDisplayComment } from "@/core/chess/pgn/comment-display";
+import { mainline, parseGameTree, type TreeNode } from "@/core/chess/pgn/parse-tree";
+import {
+  alternativesAt,
+  clampPath,
+  displayLine,
+  endOfLinePath,
+  nextPath,
+  nodeAtPath,
+  previousPath,
+  switchVariation,
+} from "@/core/chess/pgn/tree-path";
 import type { Score } from "@/core/analysis/types";
 import type { MoveQuality } from "@/core/analysis/move-quality";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getFullGame } from "@/persistence/repositories/game-repository";
 import { getEvaluations } from "@/persistence/repositories/evaluation-repository";
 import { useEngine } from "../hooks/use-engine";
@@ -17,57 +29,61 @@ import { useFullGameAnalysis } from "../hooks/use-full-game-analysis";
 import { EnginePanel } from "./engine-panel";
 import { EvalGraph } from "./eval-graph";
 import { GameReportSummary } from "./game-report-summary";
-
-const QUALITY_MARK: Partial<Record<MoveQuality, { label: string; className: string }>> = {
-  inaccuracy: { label: "?!", className: "text-yellow-600 dark:text-yellow-500" },
-  mistake: { label: "?", className: "text-orange-600 dark:text-orange-500" },
-  blunder: { label: "??", className: "text-red-600 dark:text-red-500" },
-};
+import { MoveList } from "./move-list";
 
 export function AnalysisView({ gameId }: { gameId: number }) {
   const engine = useEngine();
 
-  const [ply, setPly] = useState(0);
+  const [path, setPath] = useState<number[]>([]);
   const [settings, setSettings] = useState<EngineSettings>({ depth: 16, multiPv: 3 });
 
   const game = useLiveQuery(() => getFullGame(gameId), [gameId]);
 
-  const timeline = useMemo(() => {
-    if (!game) return [];
+  const tree = useMemo(() => {
+    if (!game) return null;
 
     try {
-      return buildTimeline(game.content.pgn);
+      return parseGameTree(game.content.pgn);
     } catch {
-      // A game that failed to parse should not blank the page; the empty
-      // timeline is reported below.
-      return [];
+      // A game that fails to parse should not blank the page; it is reported below.
+      return null;
     }
   }, [game]);
+
+  const root = tree?.root ?? null;
+
+  // A path is only meaningful against the tree it was made for. Clamping guards
+  // the moment the game changes while a deep path is still selected.
+  const safePath = useMemo(() => (root ? clampPath(root, path) : []), [root, path]);
+
+  const current = root ? nodeAtPath(root, safePath) : null;
+  const line = useMemo(() => (root ? displayLine(root, safePath) : []), [root, safePath]);
+  const alternatives = useMemo(
+    () => (root ? alternativesAt(root, safePath) : []),
+    [root, safePath],
+  );
 
   const { analyse, reset, ...analysisState } = useEngineAnalysis(engine, settings);
   const fullGame = useFullGameAnalysis(engine);
 
-  const current = timeline[ply];
-
-  // Analyse whenever the position or the settings change. Stepping through a
-  // game abandons the previous search, which the engine handles internally.
   useEffect(() => {
     if (!current) return;
 
     void analyse(current.fen);
   }, [current, analyse]);
 
-  // Stored evaluations for the whole game, so the graph and move marks reflect
-  // work done in earlier sessions without re-running anything.
+  // The graph follows the game as played, not the branch being read, so it
+  // stays a stable picture of the game while the reader explores sidelines.
+  const mainLine = useMemo(() => (root ? mainline(root) : []), [root]);
+
   const storedEvaluations = useLiveQuery(
-    async () => (timeline.length > 0 ? getEvaluations(timeline.map((n) => n.key)) : new Map()),
-    [timeline],
+    async () => (mainLine.length > 0 ? getEvaluations(mainLine.map((n) => n.key)) : new Map()),
+    [mainLine],
   );
 
   const graphScores: (Score | null)[] = useMemo(
-    () =>
-      timeline.map((node) => storedEvaluations?.get(node.key)?.lines[0]?.score ?? null),
-    [timeline, storedEvaluations],
+    () => mainLine.map((node) => storedEvaluations?.get(node.key)?.lines[0]?.score ?? null),
+    [mainLine, storedEvaluations],
   );
 
   const qualityByPly = useMemo(() => {
@@ -84,12 +100,13 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     return <p className="text-muted-foreground text-sm">This game no longer exists.</p>;
   }
 
-  if (timeline.length === 0) {
+  if (!root || !current || !tree) {
     return <p className="text-destructive text-sm">This game&apos;s moves could not be read.</p>;
   }
 
-  const step = (delta: number) =>
-    setPly((previous) => Math.max(0, Math.min(timeline.length - 1, previous + delta)));
+  const go = (next: number[] | null) => {
+    if (next) setPath(next);
+  };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
@@ -105,30 +122,77 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         />
 
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" aria-label="First move" onClick={() => setPly(0)}>
+          <Button variant="outline" size="icon" aria-label="First move" onClick={() => setPath([])}>
             <SkipBack />
           </Button>
-          <Button variant="outline" size="icon" aria-label="Previous move" onClick={() => step(-1)}>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Previous move"
+            onClick={() => go(previousPath(safePath))}
+          >
             <ChevronLeft />
           </Button>
-          <Button variant="outline" size="icon" aria-label="Next move" onClick={() => step(1)}>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Next move"
+            onClick={() => go(nextPath(root, safePath))}
+          >
             <ChevronRight />
           </Button>
           <Button
             variant="outline"
             size="icon"
-            aria-label="Last move"
-            onClick={() => setPly(timeline.length - 1)}
+            aria-label="End of line"
+            onClick={() => setPath(endOfLinePath(root, safePath))}
           >
             <SkipForward />
           </Button>
 
           <span className="text-muted-foreground ml-2 text-sm tabular-nums">
-            {ply === 0 ? "Start" : `${formatMoveNumber(ply)} ${current.san}`}
+            {current.san === null
+              ? "Start"
+              : `${formatMoveNumber(current.ply)} ${current.san}`}
           </span>
         </div>
 
-        <EvalGraph scores={graphScores} currentPly={ply} onSelectPly={setPly} />
+        <EvalGraph
+          scores={graphScores}
+          // The marker only applies while reading the mainline; inside a
+          // sideline there is no position on the game's own graph.
+          currentPly={safePath.every((step) => step === 0) ? current.ply : -1}
+          onSelectPly={(ply) => setPath(Array(ply).fill(0))}
+        />
+
+        <CurrentMoveAnnotations node={current} />
+
+        {alternatives.length > 0 ? (
+          <section className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Instead:</span>
+            {alternatives.map((alternative) => (
+              <Button
+                key={alternative.index}
+                variant="outline"
+                size="sm"
+                onClick={() => setPath(switchVariation(safePath, alternative.index))}
+              >
+                {alternative.node.san}
+                {alternative.node.nags.map((nag) => formatNag(nag)).join("")}
+              </Button>
+            ))}
+          </section>
+        ) : null}
+
+        {tree.droppedVariations > 0 ? (
+          // Stated rather than hidden: the game is shown as less complete than
+          // its source, and the reader should know why.
+          <p className="text-muted-foreground text-xs">
+            {tree.droppedVariations} variation
+            {tree.droppedVariations === 1 ? "" : "s"} in this game contained an
+            illegal move and could not be shown.
+          </p>
+        ) : null}
       </div>
 
       <div className="flex min-w-0 flex-col gap-6">
@@ -160,7 +224,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
               <Button
                 size="sm"
                 className="ml-auto"
-                onClick={() => void fullGame.run(timeline, settings.depth)}
+                onClick={() => void fullGame.run(mainLine, settings.depth)}
               >
                 Analyse every move
               </Button>
@@ -171,53 +235,50 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         </section>
 
         <MoveList
-          timeline={timeline}
-          currentPly={ply}
+          line={line}
+          currentPath={safePath}
           qualityByPly={qualityByPly}
-          onSelect={setPly}
+          onSelect={setPath}
         />
       </div>
     </div>
   );
 }
 
-function MoveList({
-  timeline,
-  currentPly,
-  qualityByPly,
-  onSelect,
-}: {
-  timeline: ReturnType<typeof buildTimeline>;
-  currentPly: number;
-  qualityByPly: Map<number, MoveQuality>;
-  onSelect: (ply: number) => void;
-}) {
+/** Comments and glyphs the annotator attached to the move currently shown. */
+function CurrentMoveAnnotations({ node }: { node: TreeNode }) {
+  if (node.comments.length === 0 && node.nags.length === 0) return null;
+
   return (
-    <ol className="flex max-h-64 flex-wrap gap-x-1 gap-y-0.5 overflow-auto text-sm">
-      {timeline.slice(1).map((node) => {
-        const mark = QUALITY_MARK[qualityByPly.get(node.ply) ?? "good"];
+    <section className="rounded-md border p-3 text-sm">
+      {node.nags.length > 0 ? (
+        <div className="mb-1 flex gap-1">
+          {node.nags.map((nag) => (
+            <Badge key={nag} variant="secondary" className="text-xs">
+              {formatNag(nag)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {node.comments.map((comment, index) => {
+        const display = toDisplayComment(comment);
 
         return (
-          <li key={node.ply} className="flex items-baseline gap-1">
-            {node.ply % 2 === 1 ? (
-              <span className="text-muted-foreground tabular-nums">
-                {formatMoveNumber(node.ply)}
+          <p key={index} className="text-muted-foreground">
+            {display.text}
+            {display.truncatedBy > 0 ? (
+              // Said plainly rather than trailing off: the comment is intact in
+              // the stored PGN, only its display is bounded.
+              <span className="text-xs italic">
+                {" "}
+                … {display.truncatedBy.toLocaleString()} further characters not
+                shown
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() => onSelect(node.ply)}
-              className={cn(
-                "rounded px-1",
-                node.ply === currentPly ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-              )}
-            >
-              {node.san}
-              {mark ? <span className={mark.className}>{mark.label}</span> : null}
-            </button>
-          </li>
+          </p>
         );
       })}
-    </ol>
+    </section>
   );
 }

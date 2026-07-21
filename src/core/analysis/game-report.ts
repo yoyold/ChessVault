@@ -1,4 +1,4 @@
-import type { TimelineNode } from "@/core/chess/pgn/game-timeline";
+import type { TreeNode } from "@/core/chess/pgn/game-timeline";
 import type { PositionKey } from "@/core/chess/position-key";
 import { assessMove, type MoveAssessment, type MoveQuality } from "./move-quality";
 import type { Score } from "./types";
@@ -59,7 +59,7 @@ function emptySummary(): ColourSummary {
  * analysed game look cleanly played.
  */
 export function buildGameReport(
-  timeline: readonly TimelineNode[],
+  timeline: readonly TreeNode[],
   evaluations: ReadonlyMap<PositionKey, EvaluatedPosition>,
 ): GameReport {
   const moves: MoveReport[] = [];

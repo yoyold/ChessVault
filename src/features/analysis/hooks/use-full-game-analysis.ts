@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { TimelineNode } from "@/core/chess/pgn/game-timeline";
+import type { TreeNode } from "@/core/chess/pgn/game-timeline";
 import type { PositionKey } from "@/core/chess/position-key";
 import { buildGameReport, type EvaluatedPosition, type GameReport } from "@/core/analysis/game-report";
 import {
@@ -39,7 +39,7 @@ export function useFullGameAnalysis(engine: StockfishEngine) {
   }, [engine]);
 
   const run = useCallback(
-    async (timeline: readonly TimelineNode[], depth: number) => {
+    async (timeline: readonly TreeNode[], depth: number) => {
       cancelled.current = false;
       setReport(null);
       setProgress({ analysed: 0, total: timeline.length });
