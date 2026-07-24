@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Trash2 } from "lucide-react";
 import type { GameRecord } from "@/core/domain/game";
 import { ResultBadge } from "@/components/result-badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +19,8 @@ interface GameListProps {
   onSelect: (id: number) => void;
   /** Opening a game outright, rather than just selecting it. */
   onOpen: (id: number) => void;
+  /** Asks the parent to confirm deleting a game, without opening it. */
+  onRequestDelete: (id: number) => void;
   /** Reports which rows are on screen so their records can be fetched. */
   onVisibleRangeChange: (indexes: number[]) => void;
 }
@@ -40,6 +43,7 @@ export function GameList({
   selectedId,
   onSelect,
   onOpen,
+  onRequestDelete,
   onVisibleRangeChange,
 }: GameListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -94,6 +98,7 @@ export function GameList({
                   selected={id === selectedId}
                   onSelect={() => onSelect(id)}
                   onOpen={() => onOpen(id)}
+                  onDelete={() => onRequestDelete(id)}
                 />
               ) : (
                 // The row exists in the ordered id list but its record has not
@@ -113,55 +118,79 @@ function GameRow({
   selected,
   onSelect,
   onOpen,
+  onDelete,
 }: {
   game: GameRecord;
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  onDelete: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      onDoubleClick={onOpen}
-      aria-current={selected ? "true" : undefined}
+    // A container, not a button: the delete control is a sibling button, and a
+    // button cannot be nested inside another. `group` lets the delete control
+    // reveal on hover; it also appears on keyboard focus within the row.
+    <div
       className={cn(
         // Rows stay neutral: the result is carried by its badge alone, so the
         // selection remains the only thing that changes a row's background.
-        "flex h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition-colors",
+        "group flex h-12 w-full items-center rounded-md transition-colors",
         selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
       )}
     >
-      <span className="min-w-0 flex-1 truncate">
-        <span className="font-medium">{game.white || "?"}</span>
-        {game.whiteElo ? (
-          <span className="text-muted-foreground text-xs"> {game.whiteElo}</span>
-        ) : null}
-        <span className="text-muted-foreground"> vs </span>
-        <span className="font-medium">{game.black || "?"}</span>
-        {game.blackElo ? (
-          <span className="text-muted-foreground text-xs"> {game.blackElo}</span>
-        ) : null}
-      </span>
+      <button
+        type="button"
+        onClick={onSelect}
+        onDoubleClick={onOpen}
+        aria-current={selected ? "true" : undefined}
+        className="flex h-full min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-sm"
+      >
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-medium">{game.white || "?"}</span>
+          {game.whiteElo ? (
+            <span className="text-muted-foreground text-xs"> {game.whiteElo}</span>
+          ) : null}
+          <span className="text-muted-foreground"> vs </span>
+          <span className="font-medium">{game.black || "?"}</span>
+          {game.blackElo ? (
+            <span className="text-muted-foreground text-xs"> {game.blackElo}</span>
+          ) : null}
+        </span>
 
-      <span className="flex w-16 shrink-0 justify-center">
-        <ResultBadge result={game.result} playerColor={game.playerColor} />
-      </span>
+        <span className="flex w-16 shrink-0 justify-center">
+          <ResultBadge result={game.result} playerColor={game.playerColor} />
+        </span>
 
-      <span className="text-muted-foreground hidden w-32 shrink-0 truncate lg:block">
-        {game.event ?? ""}
-      </span>
+        <span className="text-muted-foreground hidden w-32 shrink-0 truncate lg:block">
+          {game.event ?? ""}
+        </span>
 
-      <span className="text-muted-foreground hidden w-24 shrink-0 truncate sm:block">
-        {game.eco ?? ""}
-        {game.eco && game.opening ? " " : ""}
-        {game.opening ?? ""}
-      </span>
+        <span className="text-muted-foreground hidden w-24 shrink-0 truncate sm:block">
+          {game.eco ?? ""}
+          {game.eco && game.opening ? " " : ""}
+          {game.opening ?? ""}
+        </span>
 
-      <span className="text-muted-foreground w-24 shrink-0 text-right tabular-nums">
-        {/* Undated games store an empty string; showing a dash is clearer than a blank cell. */}
-        {game.dateIso === "" ? "—" : game.dateIso}
-      </span>
-    </button>
+        <span className="text-muted-foreground w-24 shrink-0 text-right tabular-nums">
+          {/* Undated games store an empty string; showing a dash is clearer than a blank cell. */}
+          {game.dateIso === "" ? "—" : game.dateIso}
+        </span>
+      </button>
+
+      {/*
+        Deleting from the row exists precisely so a game whose detail view would
+        hang — a corrupted, oversized game — can still be removed without opening
+        it. Reserved as a fixed slot so the layout never shifts; the icon fades
+        in on hover or keyboard focus.
+      */}
+      <button
+        type="button"
+        aria-label={`Delete game ${game.white || "?"} versus ${game.black || "?"}`}
+        onClick={onDelete}
+        className="text-muted-foreground hover:text-destructive flex h-full w-9 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        <Trash2 className="size-4" />
+      </button>
+    </div>
   );
 }
