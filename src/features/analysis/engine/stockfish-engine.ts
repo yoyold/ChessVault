@@ -25,6 +25,27 @@ const ENGINE_URL = asset("/engine/stockfish-18-lite-single.js");
  */
 const STOP_TIMEOUT_MS = 5_000;
 
+/**
+ * The subset of a Web Worker the engine actually drives.
+ *
+ * Narrowed to exactly this so a test can supply a fake UCI worker without a DOM
+ * or WebAssembly, and so the protocol handling can be exercised in isolation —
+ * which matters because it is the part that has crashed the real engine.
+ */
+export interface EngineWorker {
+  postMessage(message: string): void;
+  addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
+  addEventListener(type: "error", listener: (event: { message: string }) => void): void;
+  removeEventListener(type: "message", listener: (event: MessageEvent) => void): void;
+  terminate(): void;
+}
+
+/** Creates the worker the engine talks to. Overridable so tests inject a fake. */
+export type EngineWorkerFactory = () => EngineWorker;
+
+const defaultWorkerFactory: EngineWorkerFactory = () =>
+  new Worker(ENGINE_URL) as unknown as EngineWorker;
+
 /** A request waiting for its turn at the engine. */
 interface QueuedJob {
   request: AnalysisRequest;
@@ -70,8 +91,13 @@ interface ActiveSearch {
  * twenty moves, only the position they stop on is worth searching.
  */
 export class StockfishEngine implements EngineService {
-  private worker: Worker | null = null;
+  private readonly createWorker: EngineWorkerFactory;
+  private worker: EngineWorker | null = null;
   private ready: Promise<void> | null = null;
+
+  constructor(createWorker: EngineWorkerFactory = defaultWorkerFactory) {
+    this.createWorker = createWorker;
+  }
 
   /** The next request to run. At most one; a newer request supersedes it. */
   private queued: QueuedJob | null = null;
@@ -191,7 +217,7 @@ export class StockfishEngine implements EngineService {
     if (this.ready) return this.ready;
 
     this.ready = new Promise<void>((resolve, reject) => {
-      const worker = new Worker(ENGINE_URL);
+      const worker = this.createWorker();
       this.worker = worker;
 
       const onHandshake = (event: MessageEvent) => {
