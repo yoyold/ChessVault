@@ -1,4 +1,6 @@
+import { Separator } from "@/components/ui/separator";
 import { PlayerNamesSetting } from "@/features/shell/player-names-setting";
+import { SyncSetting } from "@/features/sync/sync-setting";
 
 export default function SettingsPage() {
   return (
@@ -8,6 +10,8 @@ export default function SettingsPage() {
       </header>
 
       <PlayerNamesSetting />
+      <Separator />
+      <SyncSetting />
     </div>
   );
 }
