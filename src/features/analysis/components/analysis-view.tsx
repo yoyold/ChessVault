@@ -16,6 +16,7 @@ import {
 } from "@/core/chess/pgn/tree-path";
 import type { Score } from "@/core/analysis/types";
 import type { MoveQuality } from "@/core/analysis/move-quality";
+import { symbolForMove } from "@/core/analysis/move-symbols";
 import { Button } from "@/components/ui/button";
 import { getFullGame } from "@/persistence/repositories/game-repository";
 import { getEvaluations } from "@/persistence/repositories/evaluation-repository";
@@ -264,6 +265,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
               fen={current.fen}
               orientation={game.record.playerColor === "black" ? "black" : "white"}
               lastMoveUci={current.uci}
+              moveSymbol={symbolForMove(current.nags, qualityByPly.get(current.ply))}
               onMove={playMove}
             />
           </div>
@@ -376,7 +378,21 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         ) : null}
       </div>
 
-      <div className="flex min-w-0 flex-col gap-6">
+      {/*
+        Pinned to the viewport from the breakpoint where the two columns sit
+        side by side.
+
+        As a plain grid item this column is as tall as the row, which the board
+        column decides, so reading a long game meant scrolling the panel off the
+        screen — and with it the engine output and the move you were on. Given
+        its own height in viewport units it stays put and scrolls inside
+        instead. `self-start` is what makes that possible: a stretched item
+        fills the row and has nothing to slide within.
+
+        The offsets clear the sticky header (3.5rem) and keep the page's own
+        padding (2rem) above and below.
+      */}
+      <div className="flex min-w-0 flex-col gap-6 xl:sticky xl:top-[5.5rem] xl:h-[calc(100svh-7.5rem)] xl:self-start">
         <EnginePanel
           {...analysisState}
           settings={settings}
@@ -421,16 +437,16 @@ export function AnalysisView({ gameId }: { gameId: number }) {
 
           `flex-1` with `min-h-0` lets the list take the height the column has
           left instead of a fixed cap, so the moves use the space before
-          scrolling starts.
+          scrolling starts. The list scrolls itself, and keeps the current move
+          centred as you step through the game.
         */}
-        <div className="min-h-0 flex-1 overflow-auto">
-          <MoveList
-            root={root}
-            currentPath={safePath}
-            qualityByPly={qualityByPly}
-            onSelect={setPath}
-          />
-        </div>
+        <MoveList
+          className="min-h-0 flex-1"
+          root={root}
+          currentPath={safePath}
+          qualityByPly={qualityByPly}
+          onSelect={setPath}
+        />
       </div>
     </div>
   );

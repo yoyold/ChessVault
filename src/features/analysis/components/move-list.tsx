@@ -1,18 +1,18 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { formatMoveNumber, formatNag } from "@/core/chess/pgn/game-timeline";
 import type { TreeNode } from "@/core/chess/pgn/parse-tree";
 import { MAX_COMMENT_LENGTH, toDisplayComment } from "@/core/chess/pgn/comment-display";
 import type { MoveQuality } from "@/core/analysis/move-quality";
+import {
+  MOVE_SYMBOL_COLOR,
+  MOVE_SYMBOL_INK,
+  symbolForMove,
+  symbolForNag,
+} from "@/core/analysis/move-symbols";
 import type { TreePath } from "@/core/chess/pgn/tree-path";
 import { cn } from "@/lib/utils";
-
-/** Engine verdicts, shown alongside the annotator's own glyphs rather than replacing them. */
-const QUALITY_MARK: Partial<Record<MoveQuality, { label: string; className: string }>> = {
-  inaccuracy: { label: "?!", className: "text-yellow-600 dark:text-yellow-400" },
-  mistake: { label: "?", className: "text-orange-600 dark:text-orange-400" },
-  blunder: { label: "??", className: "text-red-600 dark:text-red-400" },
-};
 
 /** Prose of a move's comments, with machine commands and empties removed. */
 function visibleCommentText(comments: readonly string[]): string {
@@ -33,6 +33,8 @@ interface MoveListProps {
   currentPath: TreePath;
   qualityByPly: Map<number, MoveQuality>;
   onSelect: (path: number[]) => void;
+  /** Applied to the scroll container, so the caller sizes it. */
+  className?: string;
 }
 
 /**
@@ -47,18 +49,55 @@ interface MoveListProps {
  * parentheses alone — at two or three levels deep, parentheses stop being
  * readable.
  */
-export function MoveList({ root, currentPath, qualityByPly, onSelect }: MoveListProps) {
+export function MoveList({
+  root,
+  currentPath,
+  qualityByPly,
+  onSelect,
+  className,
+}: MoveListProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // The path as a value rather than the array itself: a new array with the same
+  // steps arrives on every render, and re-centring on each of them would drag
+  // the list back while the reader is scrolling through it — the engine alone
+  // re-renders several times a second.
+  const pathKey = currentPath.join("-");
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const move = container?.querySelector('[aria-current="true"]');
+    if (!container || !move) return;
+
+    /*
+     * Scrolled by hand rather than with `scrollIntoView`.
+     *
+     * `scrollIntoView` walks up every scrollable ancestor, so in a page that
+     * also scrolls it moves the whole view to reach a move — the panel is
+     * pinned to the viewport precisely so that cannot happen. Adjusting this
+     * container's own offset moves nothing else, and the arithmetic is what
+     * puts the move in the middle rather than merely inside the box.
+     */
+    const box = container.getBoundingClientRect();
+    const target = move.getBoundingClientRect();
+
+    container.scrollTop +=
+      target.top - box.top - (box.height - target.height) / 2;
+  }, [pathKey]);
+
   return (
-    <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[0.95em] leading-relaxed">
-      <Line
-        node={root}
-        path={[]}
-        currentPath={currentPath}
-        qualityByPly={qualityByPly}
-        onSelect={onSelect}
-        forceNumber
-        inVariation={false}
-      />
+    <div ref={containerRef} className={cn("overflow-auto", className)}>
+      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[0.95em] leading-relaxed">
+        <Line
+          node={root}
+          path={[]}
+          currentPath={currentPath}
+          qualityByPly={qualityByPly}
+          onSelect={onSelect}
+          forceNumber
+          inVariation={false}
+        />
+      </div>
     </div>
   );
 }
@@ -189,8 +228,13 @@ function Move({
   inVariation: boolean;
   onSelect: (path: number[]) => void;
 }) {
-  const mark = quality ? QUALITY_MARK[quality] : undefined;
+  const symbol = symbolForMove(node.nags, quality);
   const showNumber = parent.sideToMove === "w" || forceNumber;
+
+  // The move glyph is drawn as a badge, so the glyph it came from must not also
+  // appear as text. What is left describes the position rather than the move —
+  // "⩲" and its kin — and still belongs next to the move.
+  const positionalNags = node.nags.filter((nag) => symbolForNag(nag) === null);
 
   return (
     <span className="inline-flex items-baseline gap-1">
@@ -218,12 +262,26 @@ function Move({
         )}
       >
         {node.san}
-        {node.nags.map((nag) => (
+        {positionalNags.map((nag) => (
           <span key={nag} className="text-muted-foreground">
             {formatNag(nag)}
           </span>
         ))}
-        {mark ? <span className={mark.className}>{mark.label}</span> : null}
+        {symbol ? (
+          // A filled badge rather than coloured text, and the same one the
+          // board draws. Coloured text would have to read on four different
+          // backgrounds — page and selected move, in both themes — and the
+          // lighter half of the palette fails on at least one of them.
+          <span
+            className="ml-1 rounded-[0.25em] px-[0.3em] py-[0.05em] align-baseline text-[0.8em] font-bold"
+            style={{
+              backgroundColor: MOVE_SYMBOL_COLOR[symbol],
+              color: MOVE_SYMBOL_INK,
+            }}
+          >
+            {symbol}
+          </span>
+        ) : null}
       </button>
     </span>
   );
