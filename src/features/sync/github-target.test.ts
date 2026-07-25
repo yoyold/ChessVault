@@ -15,6 +15,8 @@ const json = (status: number, body: unknown) =>
 class FakeGitHub {
   file: { contentB64: string; sha: string } | null = null;
   token = "good-token";
+  /** Lowered in tests so the oversized path can be exercised without megabytes. */
+  inlineLimit = 1_000_000;
   private counter = 0;
 
   private nextSha(): string {
@@ -45,10 +47,26 @@ class FakeGitHub {
     // GET
     if (this.file === null) return json(404, { message: "Not Found" });
 
+    const url = String(_input);
+
+    // The git data API, addressed by SHA, hands back the bytes the contents
+    // API declines to inline.
+    if (url.includes("/git/blobs/")) {
+      if (!url.endsWith(this.file.sha)) return json(404, { message: "Not Found" });
+      return json(200, { content: this.file.contentB64, encoding: "base64" });
+    }
+
+    const size = atob(this.file.contentB64.replace(/\s/g, "")).length;
+
+    // Past a megabyte the real API describes the file and leaves the body out.
+    if (size > this.inlineLimit) {
+      return json(200, { content: "", sha: this.file.sha, size, encoding: "none" });
+    }
+
     return json(200, {
       content: this.file.contentB64,
       sha: this.file.sha,
-      size: atob(this.file.contentB64).length,
+      size,
       encoding: "base64",
     });
   });
@@ -93,6 +111,35 @@ describe("pull", () => {
     // The real API wraps base64 at column 60; the decoder must strip that.
     remote.file = { contentB64: "aGVsbG8g\nd29ybGQ=", sha: "sha-x" };
     expect((await makeTarget().pull())?.content).toBe("hello world");
+  });
+
+  it("falls back to the blobs API when the body is too large to inline", async () => {
+    // The contents API stops inlining bodies at a megabyte, which a real
+    // database passes easily. Refusing there would cap the whole feature.
+    remote.inlineLimit = 8;
+    const target = makeTarget();
+    await target.push("a snapshot larger than the inline limit", null);
+
+    const pulled = await target.pull();
+
+    expect(pulled?.content).toBe("a snapshot larger than the inline limit");
+    expect(pulled?.version).toBe("sha-1");
+    expect(remote.fetch.mock.calls.some(([url]) => String(url).includes("/git/blobs/"))).toBe(
+      true,
+    );
+  });
+
+  it("reads the blob belonging to the version it reports", async () => {
+    // The two endpoints must describe one object: a body fetched from a
+    // different blob than the SHA returned would break the concurrency check.
+    remote.inlineLimit = 0;
+    const target = makeTarget();
+    await target.push("first", null);
+    const second = await target.push("second", "sha-1");
+
+    const pulled = await target.pull();
+    expect(pulled?.version).toBe(second);
+    expect(pulled?.content).toBe("second");
   });
 });
 
@@ -160,9 +207,19 @@ describe("authentication and failure", () => {
     await expect(target.pull()).rejects.toBeInstanceOf(SyncError);
   });
 
-  it("refuses a snapshot too large for the contents API", async () => {
-    const huge = "x".repeat(1_000_001);
-    await expect(makeTarget().push(huge, null)).rejects.toThrow(/too large/);
+  it("uploads a snapshot past the contents API's inline limit", async () => {
+    // A megabyte is what the API will hand back in one JSON body, not what the
+    // repository will hold. Refusing to upload at that size was the bug.
+    const big = "x".repeat(1_200_000);
+    await expect(makeTarget().push(big, null)).resolves.toBe("sha-1");
+  });
+
+  it("explains a rejected upload rather than quoting the status", async () => {
+    const target = new GitHubTarget(
+      { token: "t", owner: "o", repo: "r" },
+      vi.fn(async () => json(413, { message: "Payload too large" })),
+    );
+    await expect(target.push("anything", null)).rejects.toThrow(/too large/);
   });
 
   it("sends the token and API version headers", async () => {

@@ -21,13 +21,24 @@ const DEFAULT_PATH = "chessvault-snapshot.json";
 const API_ROOT = "https://api.github.com";
 
 /**
- * The GitHub contents API returns file bodies base64-encoded, and only up to
- * about a megabyte. Beyond that the body arrives empty and the blobs API would
- * be needed instead. A snapshot that large is refused with a clear message
- * rather than failing obscurely; compression or the blobs API is the path if it
- * becomes a real limit.
+ * How much of a file the contents API will inline.
+ *
+ * Past roughly a megabyte the response still carries the metadata this target
+ * needs — the SHA above all — but the body arrives empty. That is a limit on
+ * this one endpoint's JSON, not on what the repository can hold, so it is a
+ * reason to fetch the body elsewhere rather than to refuse the snapshot.
  */
-const CONTENTS_API_SIZE_LIMIT = 1_000_000;
+const INLINE_CONTENT_LIMIT = 1_000_000;
+
+/**
+ * What a repository will actually hold in one file.
+ *
+ * The blobs API serves up to a hundred megabytes, and git refuses to store more
+ * than that in a single file regardless of how it is written. Checked here so
+ * an oversized snapshot is named for what it is instead of arriving as a bare
+ * status code after a long upload.
+ */
+const BLOB_SIZE_LIMIT = 100_000_000;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -55,10 +66,14 @@ function base64ToUtf8(base64: string): string {
 /**
  * Stores the snapshot as a single file in a private GitHub repository.
  *
- * GitHub's contents API is the whole backend: it holds the file, versions it by
- * blob SHA, and enforces access through the token. Nothing is run by us. The
- * SHA doubles as the optimistic-concurrency token — a push must supply the SHA
- * it expects to replace, and GitHub rejects the write if the file has moved on.
+ * GitHub's own API is the whole backend: it holds the file, versions it by blob
+ * SHA, and enforces access through the token. Nothing is run by us. The SHA
+ * doubles as the optimistic-concurrency token — a push must supply the SHA it
+ * expects to replace, and GitHub rejects the write if the file has moved on.
+ *
+ * Writing and describing the file go through the contents API; reading its
+ * bytes may fall through to the git data API, which is the only one of the two
+ * that will hand back a body larger than a megabyte.
  */
 export class GitHubTarget implements SyncTarget {
   private readonly config: Required<Omit<GitHubConfig, "branch">> & { branch?: string };
@@ -82,6 +97,11 @@ export class GitHubTarget implements SyncTarget {
   private get contentsUrl(): string {
     const { owner, repo, path } = this.config;
     return `${API_ROOT}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
+  }
+
+  private blobUrl(sha: string): string {
+    const { owner, repo } = this.config;
+    return `${API_ROOT}/repos/${owner}/${repo}/git/blobs/${sha}`;
   }
 
   private get headers(): Record<string, string> {
@@ -111,19 +131,44 @@ export class GitHubTarget implements SyncTarget {
       encoding?: string;
     };
 
-    if (!body.content && (body.size ?? 0) > CONTENTS_API_SIZE_LIMIT) {
+    // A file past the inline limit comes back described but empty — GitHub
+    // signals it with `encoding: "none"`, and the size is the fallback for
+    // anything that does not. The blob itself still has to be fetched.
+    const inlined =
+      body.encoding !== "none" && (body.size ?? 0) <= INLINE_CONTENT_LIMIT;
+
+    return {
+      content: inlined ? base64ToUtf8(body.content ?? "") : await this.pullBlob(body.sha),
+      version: body.sha,
+    };
+  }
+
+  /**
+   * Read a file's bytes from the git data API.
+   *
+   * The same object the contents API described, addressed by its SHA, which is
+   * why the version the caller gets back is still the one it read: the two
+   * endpoints are two views of one blob, not two copies that could disagree.
+   */
+  private async pullBlob(sha: string): Promise<string> {
+    const response = await this.request(this.blobUrl(sha), { headers: this.headers });
+    this.throwForStatus(response);
+
+    const body = (await response.json()) as { content?: string; encoding?: string };
+
+    if (body.encoding !== "base64") {
       throw new SyncError(
-        "The cloud snapshot is too large for GitHub's contents API. This can happen with a very large database.",
+        `GitHub returned the snapshot in an unexpected encoding (${body.encoding ?? "none"}).`,
       );
     }
 
-    return { content: base64ToUtf8(body.content ?? ""), version: body.sha };
+    return base64ToUtf8(body.content ?? "");
   }
 
   async push(content: string, expectedVersion: string | null): Promise<string> {
-    if (encoder.encode(content).length > CONTENTS_API_SIZE_LIMIT) {
+    if (encoder.encode(content).length > BLOB_SIZE_LIMIT) {
       throw new SyncError(
-        "This snapshot is too large for GitHub's contents API. A very large or corrupted game can inflate it.",
+        "This snapshot is larger than the 100 MB GitHub allows in a single file.",
       );
     }
 
@@ -172,6 +217,14 @@ export class GitHubTarget implements SyncTarget {
     if (response.status === 403) {
       throw new SyncAuthError(
         "GitHub refused access. The token may lack contents permission, or a rate limit was hit.",
+      );
+    }
+    // Named rather than left as a bare status: the upload carries the snapshot
+    // base64-encoded, which is a third larger again, and "413" on its own gives
+    // no hint that the database is what needs to shrink.
+    if (response.status === 413) {
+      throw new SyncError(
+        "GitHub rejected the upload as too large. The database needs to shrink before it can sync.",
       );
     }
 
