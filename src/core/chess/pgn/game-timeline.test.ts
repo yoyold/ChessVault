@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTimeline, formatMoveNumber } from "./game-timeline";
+import { buildTimeline, formatMoveNumber, formatSanLine } from "./game-timeline";
 import { PgnParseError } from "./parse-game";
 
 const GAME = '[Event "Club"]\n\n1. e4 e5 2. Nf3 Nc6 1-0';
@@ -49,6 +49,20 @@ describe("buildTimeline", () => {
     expect(() => buildTimeline('[Event "A"]\n\n1. e4 e5 2. Kd8 *')).toThrow(
       PgnParseError,
     );
+  });
+});
+
+describe("formatSanLine", () => {
+  it("writes a line the way it is printed", () => {
+    expect(formatSanLine(["e4", "e5", "Nf3", "Nc6"])).toBe("1. e4 e5 2. Nf3 Nc6");
+  });
+
+  it("handles a line ending on White's move", () => {
+    expect(formatSanLine(["e4", "e5", "Nf3"])).toBe("1. e4 e5 2. Nf3");
+  });
+
+  it("renders an empty line as nothing", () => {
+    expect(formatSanLine([])).toBe("");
   });
 });
 

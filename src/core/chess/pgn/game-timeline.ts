@@ -25,6 +25,18 @@ export function formatMoveNumber(ply: number): string {
 }
 
 /**
+ * Render a sequence of moves as it would be written down.
+ *
+ * `["e4", "e5", "Nf3"]` becomes `1. e4 e5 2. Nf3`. The line is assumed to start
+ * from a White move, which is true of anything read from the initial position.
+ */
+export function formatSanLine(line: readonly string[]): string {
+  return line
+    .map((san, index) => (index % 2 === 0 ? `${formatMoveNumber(index + 1)} ${san}` : san))
+    .join(" ");
+}
+
+/**
  * Standard symbol for a numeric annotation glyph.
  *
  * Only the glyphs that appear in practice are mapped; anything else is shown as

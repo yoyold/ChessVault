@@ -27,7 +27,7 @@ export type RepertoireGraph = ReadonlyMap<PositionKey, readonly RepertoireEdge[]
  * shuffling with insertion order.
  */
 export function buildRepertoireGraph(
-  moves: readonly RepertoireMove[],
+  moves: readonly RepertoireEdge[],
 ): RepertoireGraph {
   const graph = new Map<PositionKey, RepertoireEdge[]>();
 

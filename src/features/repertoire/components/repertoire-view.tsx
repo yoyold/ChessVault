@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { ChevronLeft, SkipBack, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { positionKey, type PositionKey } from "@/core/chess/position-key";
-import { formatMoveNumber } from "@/core/chess/pgn/game-timeline";
+import { formatMoveNumber, formatSanLine } from "@/core/chess/pgn/game-timeline";
 import type { Color } from "@/core/domain/game";
 import {
   isOwnerToMove,
@@ -63,17 +63,14 @@ function replay(line: readonly string[]) {
  */
 const NO_MOVES: RepertoireMove[] = [];
 
-/** Render a line of SAN with move numbers, as it would be written down. */
-function formatLine(line: readonly string[]): string {
-  return line
-    .map((san, index) =>
-      index % 2 === 0 ? `${formatMoveNumber(index + 1)} ${san}` : san,
-    )
-    .join(" ");
-}
-
-export function RepertoireView() {
-  const [color, setColor] = useState<Color>("white");
+/**
+ * The repertoire tree for one colour.
+ *
+ * The colour is owned by the page, which remounts this view when it changes: a
+ * line is a path through one repertoire, and carrying it across would show
+ * moves the other side has never prepared.
+ */
+export function RepertoireView({ color }: { color: Color }) {
   const [line, setLine] = useState<string[]>([]);
 
   const { fen, currentKey, sideToMove, previousKey, lastUci, lastSan } = useMemo(
@@ -108,13 +105,6 @@ export function RepertoireView() {
 
   useShortcut("ArrowLeft", () => setLine((current) => current.slice(0, -1)));
   useShortcut("ArrowUp", () => setLine([]));
-
-  function switchColor(next: Color) {
-    setColor(next);
-    // A line is a path through one repertoire; carrying it across would show
-    // moves the other repertoire has never prepared.
-    setLine([]);
-  }
 
   /**
    * Play a move on the board, adding it to the repertoire.
@@ -159,13 +149,9 @@ export function RepertoireView() {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="flex w-full max-w-[min(100%,calc(100svh-16rem))] min-w-0 flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <ColorToggle color={color} onChange={switchColor} />
-
-          <span className="text-muted-foreground ml-auto text-sm tabular-nums">
-            {stats.moveCount} moves · depth {stats.maxDepth} · {stats.gapCount} gaps
-          </span>
-        </div>
+        <span className="text-muted-foreground text-sm tabular-nums">
+          {stats.moveCount} moves · depth {stats.maxDepth} · {stats.gapCount} gaps
+        </span>
 
         <AnalysisBoard
           fen={fen}
@@ -195,7 +181,7 @@ export function RepertoireView() {
           </Button>
 
           <span className="text-muted-foreground ml-2 truncate text-sm">
-            {line.length === 0 ? "Starting position" : formatLine(line)}
+            {line.length === 0 ? "Starting position" : formatSanLine(line)}
           </span>
         </div>
       </div>
@@ -302,37 +288,10 @@ export function RepertoireView() {
           }}
           describe={(key) => {
             const target = shortestLineTo(graph, REPERTOIRE_ROOT, key);
-            return target && target.length > 0 ? formatLine(target) : "Starting position";
+            return target && target.length > 0 ? formatSanLine(target) : "Starting position";
           }}
         />
       </div>
-    </div>
-  );
-}
-
-function ColorToggle({
-  color,
-  onChange,
-}: {
-  color: Color;
-  onChange: (color: Color) => void;
-}) {
-  return (
-    <div className="flex rounded-md border p-0.5">
-      {(["white", "black"] as const).map((option) => (
-        <button
-          key={option}
-          type="button"
-          aria-pressed={color === option}
-          onClick={() => onChange(option)}
-          className={cn(
-            "rounded px-3 py-1 text-sm capitalize transition-colors",
-            color === option ? "bg-primary text-primary-foreground" : "hover:bg-accent",
-          )}
-        >
-          {option}
-        </button>
-      ))}
     </div>
   );
 }
