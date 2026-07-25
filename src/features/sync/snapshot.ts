@@ -5,6 +5,7 @@ import type {
 } from "@/core/domain/game";
 import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
+import type { RepertoireMove } from "@/core/domain/repertoire";
 import { db } from "@/persistence/db";
 import { getSettings, saveSettings, type AppSettings } from "@/lib/settings";
 
@@ -39,16 +40,24 @@ export interface Snapshot {
     positions: PositionRecord[];
     gamePositions: GamePositionRecord[];
     evaluations: EvaluationRecord[];
+    repertoireMoves: RepertoireMove[];
   };
   settings: AppSettings;
 }
 
 /** Read the entire database and settings into a portable snapshot. */
 export async function createSnapshot(device: string): Promise<Snapshot> {
-  const [games, gameContents, positions, gamePositions, evaluations] =
+  const [games, gameContents, positions, gamePositions, evaluations, repertoireMoves] =
     await db.transaction(
       "r",
-      [db.games, db.gameContents, db.positions, db.gamePositions, db.evaluations],
+      [
+        db.games,
+        db.gameContents,
+        db.positions,
+        db.gamePositions,
+        db.evaluations,
+        db.repertoireMoves,
+      ],
       () =>
         Promise.all([
           db.games.toArray(),
@@ -56,6 +65,7 @@ export async function createSnapshot(device: string): Promise<Snapshot> {
           db.positions.toArray(),
           db.gamePositions.toArray(),
           db.evaluations.toArray(),
+          db.repertoireMoves.toArray(),
         ]),
     );
 
@@ -64,7 +74,14 @@ export async function createSnapshot(device: string): Promise<Snapshot> {
     schemaVersion: db.verno,
     createdAt: Date.now(),
     device,
-    data: { games, gameContents, positions, gamePositions, evaluations },
+    data: {
+      games,
+      gameContents,
+      positions,
+      gamePositions,
+      evaluations,
+      repertoireMoves,
+    },
     settings: getSettings(),
   };
 }
@@ -119,6 +136,7 @@ export function assertRestorable(value: unknown): asserts value is Snapshot {
     "positions",
     "gamePositions",
     "evaluations",
+    "repertoireMoves",
   ];
   for (const table of tables) {
     if (!Array.isArray(snapshot.data[table])) {
@@ -143,7 +161,14 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
 
   await db.transaction(
     "rw",
-    [db.games, db.gameContents, db.positions, db.gamePositions, db.evaluations],
+    [
+      db.games,
+      db.gameContents,
+      db.positions,
+      db.gamePositions,
+      db.evaluations,
+      db.repertoireMoves,
+    ],
     async () => {
       await Promise.all([
         db.games.clear(),
@@ -151,6 +176,7 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
         db.positions.clear(),
         db.gamePositions.clear(),
         db.evaluations.clear(),
+        db.repertoireMoves.clear(),
       ]);
 
       await Promise.all([
@@ -159,6 +185,7 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
         db.positions.bulkAdd(snapshot.data.positions),
         db.gamePositions.bulkAdd(snapshot.data.gamePositions),
         db.evaluations.bulkAdd(snapshot.data.evaluations),
+        db.repertoireMoves.bulkAdd(snapshot.data.repertoireMoves),
       ]);
     },
   );

@@ -6,6 +6,9 @@ import type {
 } from "@/core/domain/game";
 import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
+import type { RepertoireMove } from "@/core/domain/repertoire";
+import type { PositionKey } from "@/core/chess/position-key";
+import type { Color } from "@/core/domain/game";
 import { opponentPerspective, parseElo } from "@/core/domain/player-perspective";
 
 /**
@@ -41,6 +44,9 @@ export class ChessVaultDatabase extends Dexie {
 
   /** Compound primary key `[gameId+ply]`, so the key type is a tuple. */
   gamePositions!: Table<GamePositionRecord, [number, number]>;
+
+  /** Keyed by `[color+fromKey+san]`, so the key type is a tuple. */
+  repertoireMoves!: Table<RepertoireMove, [Color, PositionKey, string]>;
 
   /**
    * @param name Overridable so migration tests can open an isolated database
@@ -249,6 +255,26 @@ export class ChessVaultDatabase extends Dexie {
           );
         }
       });
+
+    /**
+     * Version 5 — the opening repertoire.
+     *
+     * Purely additive, so no upgrade function is needed.
+     *
+     * The primary key `[color+fromKey+san]` is the whole design in one line: a
+     * repertoire move is identified by the position it is played from, not by
+     * where it sits in a tree. Adding the same move twice is therefore an
+     * update rather than a duplicate, and two lines that transpose into one
+     * position automatically share its continuations.
+     *
+     * `[color+fromKey]` answers the query the tree view makes constantly —
+     * "what have I prepared here?" — and `[color+toKey]` answers the reverse,
+     * which is what lets a position in the analysis board report that the
+     * repertoire already reaches it.
+     */
+    this.version(5).stores({
+      repertoireMoves: "[color+fromKey+san], [color+fromKey], [color+toKey], color, addedAt",
+    });
   }
 }
 

@@ -57,6 +57,7 @@ describe("schema", () => {
       "gamePositions",
       "games",
       "positions",
+      "repertoireMoves",
     ]);
   });
 });

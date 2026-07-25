@@ -3,6 +3,7 @@ import { db } from "@/persistence/db";
 import { getSettings, resetSettingsCache, saveSettings } from "@/lib/settings";
 import { importPgn } from "@/features/games/import/import-games";
 import { saveEvaluation } from "@/persistence/repositories/evaluation-repository";
+import { addRepertoireMove } from "@/persistence/repositories/repertoire-repository";
 import { positionKeyFromFen } from "@/core/chess/position-key";
 import {
   assertRestorable,
@@ -28,6 +29,7 @@ async function clearAll() {
     db.positions.clear(),
     db.gamePositions.clear(),
     db.evaluations.clear(),
+    db.repertoireMoves.clear(),
   ]);
 }
 
@@ -45,6 +47,12 @@ async function seed() {
     depth: 20,
     engine: "Test",
     lines: [{ multiPv: 1, depth: 20, score: { type: "cp", value: 30 }, moves: ["e2e4"] }],
+  });
+  await addRepertoireMove({
+    color: "white",
+    fromFen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    san: "e4",
+    note: "my main line",
   });
   saveSettings({ playerNames: ["Dony, Lukas"] });
 }
@@ -104,6 +112,20 @@ describe("restore round trip", () => {
     expect(await db.games.count()).toBe(0);
   });
 
+  it("carries the repertoire, which a device would otherwise silently lose", async () => {
+    // A table added to the schema but forgotten here would vanish on the next
+    // sync, with nothing to signal it had gone.
+    await seed();
+    const snapshot = await createSnapshot("Laptop");
+
+    await clearAll();
+    await restoreSnapshot(snapshot);
+
+    const moves = await db.repertoireMoves.toArray();
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toMatchObject({ san: "e4", note: "my main line" });
+  });
+
   it("preserves the game content, not only the counts", async () => {
     await seed();
     const before = (await db.gameContents.toArray()).map((c) => c.pgn).sort();
@@ -124,7 +146,14 @@ describe("rejecting incompatible snapshots", () => {
       schemaVersion: db.verno,
       createdAt: 0,
       device: "d",
-      data: { games: [], gameContents: [], positions: [], gamePositions: [], evaluations: [] },
+      data: {
+        games: [],
+        gameContents: [],
+        positions: [],
+        gamePositions: [],
+        evaluations: [],
+        repertoireMoves: [],
+      },
       settings: { playerNames: [] },
     };
   }
