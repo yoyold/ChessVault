@@ -157,9 +157,21 @@
      * text, spacing and the board together rather than leaving large text
      * crammed into small containers.
      *
-     * Adjust here to taste: 100% is the browser default, 150% is one and a half
-     * times that.
+     * The browser default on a phone, and half as large again from the tablet
+     * breakpoint up. The enlargement is worth having on a desktop display,
+     * where the extra size costs nothing; on a 360px screen it costs everything
+     * — a row's fixed columns alone came to more than the screen was wide, so
+     * the players' names were squeezed to nothing and vanished. Phone
+     * interfaces are designed around the 16px default, and this is that.
+     *
+     * Adjust to taste: 100% is the browser default, 150% is one and a half
+     * times that. The breakpoint is written in pixels because a rem here would
+     * be measured against the size this rule is setting.
      */
-    font-size: 150%;
+    font-size: 100%;
+
+    @media (min-width: 768px) {
+      font-size: 150%;
+    }
   }
 }

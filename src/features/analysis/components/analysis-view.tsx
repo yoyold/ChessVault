@@ -227,8 +227,14 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         This is a max-width, not a width: the element still takes whatever the
         column actually gives it, so the board never measures one size and
         renders at another.
+
+        Only from the breakpoint where the page is meant to fit the screen. A
+        phone is much shorter than it is wide in proportion, so subtracting a
+        fixed 16rem from its height left the board a fraction of the width it
+        had available — a postage stamp beside acres of empty margin. There the
+        page scrolls anyway, so the board simply takes the width.
       */}
-      <div className="flex w-full min-w-0 max-w-[min(100%,calc(100svh-16rem))] flex-col gap-3">
+      <div className="flex w-full min-w-0 flex-col gap-3 lg:max-w-[min(100%,calc(100svh-16rem))]">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <GameHeader game={game.record} />

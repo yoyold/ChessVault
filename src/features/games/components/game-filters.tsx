@@ -20,8 +20,20 @@ interface GameFiltersProps {
   resultCount: number;
 }
 
+/**
+ * Controls fill their grid cell on a phone and size to their content above it.
+ *
+ * Wrapping a row of differently sized controls works while several fit on a
+ * line: the row's own edges keep it tidy. One control per line, each a
+ * different width, has no edges to keep — which is what made the filters read
+ * as scattered rather than as a set.
+ */
 const SELECT_CLASS =
-  "border-input bg-background h-9 rounded-md border px-2 text-sm";
+  "border-input bg-background h-9 w-full min-w-0 rounded-md border px-2 text-sm sm:w-auto";
+
+/** A label and its control. `min-w-0` is what lets the control shrink to fit. */
+const FIELD_CLASS =
+  "text-muted-foreground flex min-w-0 items-center gap-1 text-sm";
 
 /** Options are read from the data, so only values actually present are offered. */
 function useFilterOptions() {
@@ -62,7 +74,7 @@ export function GameFilters({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
         {/*
           Players only. Tournament and opening have their own controls, and
           including them here meant a player search also matched games where the
@@ -73,7 +85,7 @@ export function GameFilters({
           onChange={(event) => update({ text: event.target.value })}
           placeholder="Search players…"
           aria-label="Search players"
-          className="max-w-xs"
+          className="col-span-2 sm:max-w-xs"
         />
 
         <Input
@@ -81,7 +93,7 @@ export function GameFilters({
           onChange={(event) => update({ opponent: event.target.value })}
           placeholder="Opponent"
           aria-label="Filter by opponent"
-          className="max-w-40"
+          className="col-span-2 sm:max-w-40"
         />
 
         <select
@@ -156,25 +168,25 @@ export function GameFilters({
           </select>
         ) : null}
 
-        <label className="text-muted-foreground flex items-center gap-1 text-sm">
+        <label className={FIELD_CLASS}>
           From
           <Input
             type="date"
             value={filter.dateFrom ?? ""}
             onChange={(event) => update({ dateFrom: event.target.value })}
             aria-label="Earliest date"
-            className="w-36"
+            className="min-w-0 flex-1 sm:w-36 sm:flex-none"
           />
         </label>
 
-        <label className="text-muted-foreground flex items-center gap-1 text-sm">
+        <label className={FIELD_CLASS}>
           To
           <Input
             type="date"
             value={filter.dateTo ?? ""}
             onChange={(event) => update({ dateTo: event.target.value })}
             aria-label="Latest date"
-            className="w-36"
+            className="min-w-0 flex-1 sm:w-36 sm:flex-none"
           />
         </label>
 
@@ -183,7 +195,7 @@ export function GameFilters({
           not play. Games where you are not a player, or where the rating is
           absent, cannot satisfy a range and are excluded.
         */}
-        <label className="text-muted-foreground flex items-center gap-1 text-sm">
+        <label className={cn(FIELD_CLASS, "col-span-2 sm:col-span-1")}>
           Opp. rating
           <Input
             type="number"
@@ -196,7 +208,7 @@ export function GameFilters({
             }
             placeholder="from"
             aria-label="Minimum opponent rating"
-            className="w-24"
+            className="min-w-0 flex-1 sm:w-24 sm:flex-none"
           />
           <Input
             type="number"
@@ -209,12 +221,17 @@ export function GameFilters({
             }
             placeholder="to"
             aria-label="Maximum opponent rating"
-            className="w-24"
+            className="min-w-0 flex-1 sm:w-24 sm:flex-none"
           />
         </label>
 
         {active ? (
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => onFilterChange({})}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="col-span-2 gap-1 sm:col-span-1"
+            onClick={() => onFilterChange({})}
+          >
             <X className="size-3.5" />
             Clear
           </Button>
