@@ -94,7 +94,15 @@ export function GamesBrowser() {
   }
 
   return (
-    <div className="flex h-[calc(100svh-7rem)] flex-col gap-4">
+    // Caged to the viewport only where the filters sit on one or two rows.
+    // Narrow enough and they stack one per row and take more height than the
+    // cage allows in total, leaving the list a remainder of nothing — the games
+    // were being rendered into a box a few pixels tall. Below that breakpoint
+    // the page scrolls normally and the list carries its own height.
+    // The subtraction is what sits above: the sticky header, the page padding,
+    // and the page heading with its gap — 8.5rem in total, which is where this
+    // element starts.
+    <div className="flex flex-col gap-4 lg:h-[calc(100svh-8.5rem)]">
       <GameFilters
         filter={filter}
         sort={sort}
@@ -103,8 +111,15 @@ export function GamesBrowser() {
         resultCount={ids.length}
       />
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <div className="min-h-0 rounded-lg border">
+      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        {/*
+          A definite height is not optional here: the list is virtualised, and a
+          virtualiser measures its scroll container to decide what to render. An
+          auto-height box would measure zero and render nothing, which is a
+          blank list rather than a short one. Stretched by the grid row from the
+          breakpoint upwards, given a share of the screen below it.
+        */}
+        <div className="h-[60svh] min-h-0 rounded-lg border lg:h-auto">
           <GameList
             ids={ids}
             loaded={loaded}
