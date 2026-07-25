@@ -81,16 +81,33 @@ function SymbolBadge({ symbol }: { symbol: MoveSymbol }) {
       aria-hidden
       style={{
         position: "absolute",
-        top: "1%",
-        right: "1%",
-        width: "36%",
-        height: "36%",
-        // The badge sits over the destination square, which is also a drop
-        // target; it must not swallow the pointer.
+        // Kept fully inside the square rather than overhanging its corner: the
+        // board clips its own overflow, so an overhang would be shaved off on
+        // the back rank and the h-file and read as a rendering fault.
+        top: "0%",
+        right: "0%",
+        width: "46%",
+        height: "46%",
+        // The move arrow ends on this very square and is drawn over the pieces
+        // at z-index 20, which left the badge buried underneath it. Neither the
+        // square nor the wrapper sets a z-index, so neither opens a stacking
+        // context and this value is compared against the arrow's directly.
+        zIndex: 30,
+        // The square is also a drop target; the badge must not swallow the
+        // pointer.
         pointerEvents: "none",
       }}
     >
-      <circle cx="50" cy="50" r="48" fill={MOVE_SYMBOL_COLOR[symbol]} />
+      {/* A ring in the piece outline's own white, so the badge separates from
+          the arrow and from whatever piece is standing on the square. */}
+      <circle
+        cx="50"
+        cy="50"
+        r="44"
+        fill={MOVE_SYMBOL_COLOR[symbol]}
+        stroke="#ffffff"
+        strokeWidth="8"
+      />
       <text
         x="50"
         y="52"

@@ -57,6 +57,7 @@ export function MoveList({
   className,
 }: MoveListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const centred = useRef<{ key: string; offset: number } | null>(null);
 
   // The path as a value rather than the array itself: a new array with the same
   // steps arrives on every render, and re-centring on each of them would drag
@@ -64,10 +65,33 @@ export function MoveList({
   // re-renders several times a second.
   const pathKey = currentPath.join("-");
 
+  /*
+   * Deliberately without a dependency list.
+   *
+   * Selecting another move is not the only thing that decants the current one
+   * out of view: comments, badges and stored evaluations all arrive after the
+   * game does, and each reflows a list that wraps. Content appearing above the
+   * current move pushes it down without the selection changing at all, so a
+   * centring keyed on the selection alone runs once and is then quietly
+   * invalidated. Running every render and comparing where the move actually
+   * sits catches both causes, and the comparison makes it a no-op otherwise —
+   * which is what keeps it from fighting the reader's own scrolling.
+   */
   useEffect(() => {
     const container = containerRef.current;
+    const content = container?.firstElementChild as HTMLElement | null;
     const move = container?.querySelector('[aria-current="true"]');
-    if (!container || !move) return;
+    if (!container || !content || !move) return;
+
+    // Measured against the content rather than the page: both share an offset
+    // parent, so the difference is the move's place in the list and nothing
+    // else. Taking the raw offset would also react to the engine panel above
+    // changing height, and re-centre while the reader is looking elsewhere.
+    const offset = (move as HTMLElement).offsetTop - content.offsetTop;
+    if (centred.current?.key === pathKey && centred.current.offset === offset) {
+      return;
+    }
+    centred.current = { key: pathKey, offset };
 
     /*
      * Scrolled by hand rather than with `scrollIntoView`.
@@ -77,13 +101,21 @@ export function MoveList({
      * pinned to the viewport precisely so that cannot happen. Adjusting this
      * container's own offset moves nothing else, and the arithmetic is what
      * puts the move in the middle rather than merely inside the box.
+     *
+     * Centred on the visible slice, not on the panel. Until the page is
+     * scrolled the panel begins below the heading and its lower edge falls
+     * past the bottom of the window, so the middle of the box and the middle
+     * of the screen are not the same place — and the box's middle is the one
+     * that can sit off screen.
      */
     const box = container.getBoundingClientRect();
     const target = move.getBoundingClientRect();
+    const visibleTop = Math.max(box.top, 0);
+    const visibleBottom = Math.min(box.bottom, window.innerHeight);
 
     container.scrollTop +=
-      target.top - box.top - (box.height - target.height) / 2;
-  }, [pathKey]);
+      target.top + target.height / 2 - (visibleTop + visibleBottom) / 2;
+  });
 
   return (
     <div ref={containerRef} className={cn("overflow-auto", className)}>

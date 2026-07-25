@@ -389,10 +389,15 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         instead. `self-start` is what makes that possible: a stretched item
         fills the row and has nothing to slide within.
 
-        The offsets clear the sticky header (3.5rem) and keep the page's own
-        padding (2rem) above and below.
+        Pinned below the sticky header (3.5rem) plus the page's own padding
+        (2rem). The height subtracts more than that, because the two are not
+        measured from the same place: until the page is scrolled the column
+        starts below the page heading as well (2rem plus a 1rem gap), and a
+        height computed for the pinned position hung past the bottom of the
+        window there. Sized for the lower of the two starts, so it is never cut
+        off; once pinned the remainder reads as padding under the panel.
       */}
-      <div className="flex min-w-0 flex-col gap-6 xl:sticky xl:top-[5.5rem] xl:h-[calc(100svh-7.5rem)] xl:self-start">
+      <div className="flex min-w-0 flex-col gap-6 xl:sticky xl:top-[5.5rem] xl:h-[calc(100svh-8.5rem)] xl:self-start">
         <EnginePanel
           {...analysisState}
           settings={settings}
