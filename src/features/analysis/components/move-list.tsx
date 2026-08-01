@@ -185,23 +185,22 @@ function Line({
     );
 
     if (comment) {
-      output.push(
-        <span
-          key={`${movePath.join("-")}-comment`}
-          className="text-muted-foreground basis-full text-[0.85em] italic"
-        >
-          {comment}
-        </span>,
-      );
+      output.push(<Comment key={`${movePath.join("-")}-comment`} text={comment} />);
     }
 
     for (const [offset, alternative] of alternatives.entries()) {
       const branchPath = [...currentPathHere, offset + 1];
 
+      // The move that opens a variation carries its own comment, and it was
+      // the one comment the list never showed: only moves reached as the
+      // continuation of a line were rendered with theirs, and a branch's first
+      // move is reached as the branch itself.
+      const branchComment = visibleCommentText(alternative.comments);
+
       output.push(
         <div
           key={branchPath.join("-")}
-          className="border-muted-foreground/30 text-muted-foreground basis-full border-l-2 pl-2"
+          className="border-muted-foreground/50 bg-muted/40 text-muted-foreground basis-full rounded-r-sm border-l-2 py-0.5 pr-1 pl-2 text-[0.9em]"
         >
           <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
             <Move
@@ -214,6 +213,7 @@ function Line({
               inVariation
               onSelect={onSelect}
             />
+            {branchComment ? <Comment text={branchComment} /> : null}
             <Line
               node={alternative}
               path={branchPath}
@@ -238,6 +238,20 @@ function Line({
 
   // Every element already carries a key derived from its path.
   return <>{output}</>;
+}
+
+/**
+ * A move's prose, on a line of its own.
+ *
+ * `basis-full` breaks the flex row so a comment never sits between two moves
+ * as though it were one of them.
+ */
+function Comment({ text }: { text: string }) {
+  return (
+    <span className="text-muted-foreground basis-full text-[0.85em] italic">
+      {text}
+    </span>
+  );
 }
 
 function Move({
@@ -283,14 +297,17 @@ function Move({
         onClick={() => onSelect(path)}
         aria-current={selected ? "true" : undefined}
         className={cn(
-          "rounded px-1 font-medium transition-colors",
+          "rounded px-1 transition-colors",
           selected
             ? // The strongest contrast in the panel: the current move must be
               // findable at a glance in a wall of similar text.
-              "bg-primary text-primary-foreground"
+              "bg-primary text-primary-foreground font-semibold"
             : inVariation
-              ? "text-muted-foreground hover:bg-accent hover:text-foreground"
-              : "text-foreground hover:bg-accent",
+              ? // Set back on three counts at once — weight, colour and, from
+                // the enclosing block, size. Any one of them alone left the two
+                // kinds of line reading as the same text.
+                "text-muted-foreground font-normal hover:bg-accent hover:text-foreground"
+              : "text-foreground font-semibold hover:bg-accent",
         )}
       >
         {node.san}
