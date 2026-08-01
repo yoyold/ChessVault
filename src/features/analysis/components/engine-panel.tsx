@@ -1,7 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { formatScore } from "@/core/analysis/types";
+import { formatVariation } from "@/core/analysis/variation-notation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { EngineAnalysisState, EngineSettings } from "../hooks/use-engine-analysis";
@@ -16,6 +18,7 @@ const SELECT_CLASS = "border-input bg-background h-8 rounded-md border px-2 text
 
 export function EnginePanel({
   analysis,
+  fen,
   running,
   error,
   fromCache,
@@ -23,6 +26,22 @@ export function EnginePanel({
   onSettingsChange,
   onReanalyse,
 }: EnginePanelProps) {
+  /*
+   * Replaying each line costs a board per variation, and the engine reports
+   * progress several times a second. Memoised on the analysis itself so the
+   * work happens when the lines change rather than on every render of the
+   * surrounding view — the engine's depth counter alone re-renders this panel.
+   */
+  const variations = useMemo(
+    () =>
+      (analysis?.lines ?? []).map((line) => ({
+        multiPv: line.multiPv,
+        score: line.score,
+        moves: fen ? formatVariation(fen, line.moves) : "",
+      })),
+    [analysis, fen],
+  );
+
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -84,21 +103,17 @@ export function EnginePanel({
 
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
 
-      {analysis && analysis.lines.length > 0 ? (
+      {variations.length > 0 ? (
         <ol className="flex flex-col gap-1">
-          {analysis.lines.map((line) => (
+          {variations.map((line) => (
             <li key={line.multiPv} className="flex gap-2 text-sm">
               <span className="w-16 shrink-0 font-medium tabular-nums">
                 {formatScore(line.score)}
               </span>
-              {/*
-                Variations are shown in the engine's own notation. Converting to
-                SAN needs a board replay per line on every progress update,
-                which is work the panel does not need to do to be useful.
-              */}
-              <span className="text-muted-foreground truncate font-mono text-xs">
-                {line.moves.slice(0, 12).join(" ")}
-              </span>
+              {/* Not monospaced any more: the coordinates were columns of
+                  equal-width tokens, where notation is words and reads as
+                  prose does. */}
+              <span className="text-muted-foreground truncate">{line.moves}</span>
             </li>
           ))}
         </ol>

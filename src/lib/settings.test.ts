@@ -17,7 +17,7 @@ beforeEach(() => {
 
 describe("getSettings", () => {
   it("returns defaults when nothing is stored", () => {
-    expect(getSettings()).toEqual({ playerNames: [] });
+    expect(getSettings()).toEqual({ playerNames: [], focusMode: false });
   });
 
   it("returns a stable reference across calls", () => {
@@ -35,6 +35,15 @@ describe("getSettings", () => {
     expect(getSettings().playerNames).toEqual(["Carlsen, Magnus"]);
   });
 
+  it("keeps focus mode across a reload", () => {
+    // The point of storing it: a mode that has to be re-entered every time is
+    // a button, not a mode.
+    saveSettings({ focusMode: true });
+    resetSettingsCache();
+
+    expect(getSettings().focusMode).toBe(true);
+  });
+
   describe("tolerating damaged storage", () => {
     // Settings are a convenience. Losing them must never stop the app starting.
     it("falls back on invalid JSON", () => {
@@ -45,6 +54,14 @@ describe("getSettings", () => {
     it("falls back on a non-object payload", () => {
       window.localStorage.setItem(STORAGE_KEY, '"a string"');
       expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+    });
+
+    it("falls back on a focus mode that is not a boolean", () => {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ playerNames: [], focusMode: "yes" }),
+      );
+      expect(getSettings().focusMode).toBe(false);
     });
 
     it("drops entries of the wrong type", () => {
@@ -113,6 +130,6 @@ describe("getServerSettings", () => {
   it("returns the frozen defaults", () => {
     // Must be referentially stable for the server snapshot.
     expect(getServerSettings()).toBe(getServerSettings());
-    expect(getServerSettings()).toEqual({ playerNames: [] });
+    expect(getServerSettings()).toEqual({ playerNames: [], focusMode: false });
   });
 });

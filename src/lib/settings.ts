@@ -20,6 +20,16 @@ export interface AppSettings {
    * every colour-based filter and statistic depends on.
    */
   playerNames: string[];
+
+  /**
+   * Hide the engine and the move list while analysing.
+   *
+   * Kept here rather than in the analysis view's own state so it survives
+   * moving between games and reloading — a mode you have to re-enter every time
+   * is a button, not a mode. Reading a game without the engine's verdict in
+   * view is how you practise judging a position yourself.
+   */
+  focusMode: boolean;
 }
 
 /**
@@ -28,6 +38,7 @@ export interface AppSettings {
  */
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   playerNames: Object.freeze([]) as unknown as string[],
+  focusMode: false,
 });
 
 const STORAGE_KEY = "chessvault.settings";
@@ -48,6 +59,10 @@ function parse(raw: string | null): AppSettings {
       playerNames: Array.isArray(stored.playerNames)
         ? stored.playerNames.filter((name): name is string => typeof name === "string")
         : DEFAULT_SETTINGS.playerNames,
+      focusMode:
+        typeof stored.focusMode === "boolean"
+          ? stored.focusMode
+          : DEFAULT_SETTINGS.focusMode,
     };
   } catch {
     // Settings are a convenience: corrupted or hand-edited storage must never

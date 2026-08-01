@@ -2,7 +2,16 @@
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, SkipBack, SkipForward } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  SkipBack,
+  SkipForward,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { formatMoveNumber, formatNag } from "@/core/chess/pgn/game-timeline";
 import { mainline, parseGameTree, type TreeNode } from "@/core/chess/pgn/parse-tree";
 import {
@@ -32,6 +41,7 @@ import {
   withNags,
 } from "@/core/chess/pgn/edit-tree";
 import { persistGame } from "@/features/games/edit/save-game";
+import { saveSettings } from "@/lib/settings";
 import { useSettings } from "@/features/shell/use-settings";
 import { useShortcut } from "@/features/shell/use-shortcut";
 import { AnalysisBoard } from "./analysis-board";
@@ -52,7 +62,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
 
   const [path, setPath] = useState<number[]>([]);
   const [settings, setSettings] = useState<EngineSettings>({ depth: 16, multiPv: 3 });
-  const { playerNames } = useSettings();
+  const { playerNames, focusMode } = useSettings();
 
   const game = useLiveQuery(() => getFullGame(gameId), [gameId]);
 
@@ -133,6 +143,12 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     if (target) setPath(target);
   }, [root, safePath]);
 
+  const toggleFocusMode = useCallback(
+    () => saveSettings({ focusMode: !focusMode }),
+    [focusMode],
+  );
+
+  useShortcut("f", toggleFocusMode);
   useShortcut("ArrowLeft", stepBack);
   useShortcut("ArrowRight", stepForward);
   useShortcut("ArrowUp", () => setPath([]));
@@ -217,7 +233,14 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     // Proportional columns rather than a fixed or viewport-derived board width:
     // a column that asks for more than it receives makes the board measure one
     // width and render at another.
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div
+      className={cn(
+        "grid gap-6",
+        // One column in focus mode: with the engine and the moves gone there is
+        // no second column to reserve room for, and the board takes the width.
+        !focusMode && "xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
+      )}
+    >
       {/*
         The board is square, so capping its *width* in viewport-height units
         also caps its height — which is what keeps it on screen. The subtraction
@@ -240,6 +263,22 @@ export function AnalysisView({ gameId }: { gameId: number }) {
             <GameHeader game={game.record} />
           </div>
 
+          {/*
+            Labelled by what it does to the panel rather than by the mode's
+            name, because that is what the icon can show.
+          */}
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-pressed={focusMode}
+            aria-label={focusMode ? "Show engine and moves (f)" : "Hide engine and moves (f)"}
+            title={focusMode ? "Show engine and moves (f)" : "Hide engine and moves (f)"}
+            onClick={toggleFocusMode}
+          >
+            {focusMode ? <PanelRightOpen /> : <PanelRightClose />}
+          </Button>
+
           <EditDetailsDialog
             headers={tree.headers}
             onSave={(next) => void save(next)}
@@ -260,10 +299,15 @@ export function AnalysisView({ gameId }: { gameId: number }) {
           two stay aligned at any board size.
         */}
         <div className="flex items-stretch gap-2">
-          <EvalBar
-            score={liveScore}
-            orientation={game.record.playerColor === "black" ? "black" : "white"}
-          />
+          {/* The bar is the engine's verdict in its shortest form, so it goes
+              with the rest of it. Leaving it up would tell you who stands
+              better before you had the chance to decide for yourself. */}
+          {focusMode ? null : (
+            <EvalBar
+              score={liveScore}
+              orientation={game.record.playerColor === "black" ? "black" : "white"}
+            />
+          )}
           {/* A defined edge: without one the board's light squares bleed into
               a light page and its dark squares into a dark one. */}
           <div className="border-border min-w-0 flex-1 overflow-hidden rounded-md border-2">
@@ -313,14 +357,16 @@ export function AnalysisView({ gameId }: { gameId: number }) {
           </span>
         </div>
 
-        <EvalGraph
-          scores={graphScores}
-          moves={mainLine.map((node) => node.san)}
-          // The marker only applies while reading the mainline; inside a
-          // sideline there is no position on the game's own graph.
-          currentPly={safePath.every((step) => step === 0) ? current.ply : -1}
-          onSelectPly={(ply) => setPath(Array(ply).fill(0))}
-        />
+        {focusMode ? null : (
+          <EvalGraph
+            scores={graphScores}
+            moves={mainLine.map((node) => node.san)}
+            // The marker only applies while reading the mainline; inside a
+            // sideline there is no position on the game's own graph.
+            currentPly={safePath.every((step) => step === 0) ? current.ply : -1}
+            onSelectPly={(ply) => setPath(Array(ply).fill(0))}
+          />
+        )}
 
         <AnnotationEditor
           // Keyed by path so moving to another move remounts the editor with
@@ -403,6 +449,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
         window there. Sized for the lower of the two starts, so it is never cut
         off; once pinned the remainder reads as padding under the panel.
       */}
+      {focusMode ? null : (
       <div className="flex min-w-0 flex-col gap-6 xl:sticky xl:top-[5.5rem] xl:h-[calc(100svh-8.5rem)] xl:self-start">
         <EnginePanel
           {...analysisState}
@@ -459,6 +506,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
           onSelect={setPath}
         />
       </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,17 @@ export interface EngineSettings {
 
 export interface EngineAnalysisState {
   analysis: PositionAnalysis | null;
+  /**
+   * The position the analysis describes.
+   *
+   * Carried alongside rather than assumed to be whatever the view is showing.
+   * Reading a stored evaluation is asynchronous, so for a moment after stepping
+   * to the next move the previous position's lines are still in hand — and a
+   * variation replayed against the wrong position does not fail, it produces
+   * different moves that read perfectly well. Wrong notation stated confidently
+   * is worse than none.
+   */
+  fen: string | null;
   running: boolean;
   error: string | null;
   /** True while showing a stored evaluation rather than a live search. */
@@ -25,6 +36,7 @@ export interface EngineAnalysisState {
 
 const IDLE: EngineAnalysisState = {
   analysis: null,
+  fen: null,
   running: false,
   error: null,
   fromCache: false,
@@ -51,6 +63,7 @@ export function useEngineAnalysis(engine: StockfishEngine, settings: EngineSetti
         if (stored && stored.depth >= settings.depth) {
           setState({
             analysis: { depth: stored.depth, lines: stored.lines, engine: stored.engine },
+            fen,
             running: false,
             error: null,
             fromCache: true,
@@ -59,15 +72,22 @@ export function useEngineAnalysis(engine: StockfishEngine, settings: EngineSetti
         }
       }
 
-      setState({ ...IDLE, running: true });
+      setState({ ...IDLE, running: true, fen });
 
       try {
         const result = await engine.analyse(
           { fen, depth: settings.depth, multiPv: settings.multiPv },
-          (progress) => setState({ analysis: progress, running: true, error: null, fromCache: false }),
+          (progress) =>
+            setState({
+              analysis: progress,
+              fen,
+              running: true,
+              error: null,
+              fromCache: false,
+            }),
         );
 
-        setState({ analysis: result, running: false, error: null, fromCache: false });
+        setState({ analysis: result, fen, running: false, error: null, fromCache: false });
         await saveEvaluation(key, result, { force: options.force });
       } catch (error) {
         // Abandoning a search is the normal consequence of stepping to the next
