@@ -1,12 +1,13 @@
 "use client";
 
 import { Chessboard } from "react-chessboard";
-import type { CSSProperties, ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   MOVE_SYMBOL_COLOR,
   MOVE_SYMBOL_INK,
   type MoveSymbol,
 } from "@/core/analysis/move-symbols";
+import { legalTargets } from "@/core/chess/legal-moves";
 
 /**
  * Square colours are deliberately not set here.
@@ -22,6 +23,17 @@ const LAST_MOVE_HIGHLIGHT = "rgba(155, 199, 0, 0.41)";
 
 /** Lichess's default arrow green. */
 const ARROW_COLOUR = "rgba(21, 120, 27, 0.8)";
+
+/** The piece waiting for a destination, in the same green as the arrows. */
+const SELECTED_HIGHLIGHT = "rgba(21, 120, 27, 0.35)";
+
+/**
+ * Where a selected piece may go.
+ *
+ * Translucent black rather than a colour: it has to read on both the light and
+ * the dark squares, and anything with a hue reads as a different mark on each.
+ */
+const TARGET_MARK = "rgba(0, 0, 0, 0.16)";
 
 /**
  * Squares must fill their grid cell.
@@ -123,6 +135,37 @@ function SymbolBadge({ symbol }: { symbol: MoveSymbol }) {
   );
 }
 
+/**
+ * The mark showing a selected piece may move here.
+ *
+ * A dot on an empty square and a ring around an occupied one, which is how
+ * every chess interface distinguishes a move from a capture — the ring reads as
+ * surrounding the piece it would take, where a dot would hide it.
+ */
+function TargetMark({ occupied }: { occupied: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        // The square underneath is the click target; the mark must not take
+        // the tap meant for it.
+        pointerEvents: "none",
+      }}
+    >
+      {occupied ? (
+        <circle cx="50" cy="50" r="44" fill="none" stroke={TARGET_MARK} strokeWidth="11" />
+      ) : (
+        <circle cx="50" cy="50" r="15" fill={TARGET_MARK} />
+      )}
+    </svg>
+  );
+}
+
 export interface AnalysisBoardProps {
   fen: string;
   orientation: "white" | "black";
@@ -136,11 +179,11 @@ export interface AnalysisBoardProps {
    */
   moveSymbol?: MoveSymbol | null;
   /**
-   * Called when a piece is dropped on a legal square.
+   * Called when a move is played, by dragging or by clicking two squares.
    *
-   * Supplying this turns dragging on. Playing a move on the board is how a
+   * Supplying this turns both on. Playing a move on the board is how a
    * variation gets written, so the board is only interactive when the caller is
-   * prepared to record what is played.
+   * prepared to record what is played. Returns whether the move was accepted.
    */
   onMove?: (from: string, to: string) => boolean;
 }
@@ -161,15 +204,59 @@ export function AnalysisBoard({
 }: AnalysisBoardProps) {
   const lastMove = squaresOf(lastMoveUci);
 
+  /*
+   * The selection remembers which position it was made in.
+   *
+   * Stepping to another move must not leave a square selected: the piece that
+   * was there is gone, and the next click would play a move the player never
+   * chose. Storing the position alongside makes a stale selection expire on its
+   * own, which needs no effect to clear it and cannot be missed on a path that
+   * forgot to.
+   */
+  const [selection, setSelection] = useState<{ square: string; fen: string } | null>(
+    null,
+  );
+  const selected = selection?.fen === fen ? selection.square : null;
+
+  const targets = useMemo(
+    () => (selected ? legalTargets(fen, selected) : []),
+    [fen, selected],
+  );
+
+  function handleSquareClick({ square }: { square: string }) {
+    if (!onMove) return;
+
+    // Clicking the selected piece again puts it back down.
+    if (selected === square) {
+      setSelection(null);
+      return;
+    }
+
+    // A move is attempted before a new selection, so that clicking an enemy
+    // piece captures it rather than trying to select it.
+    if (selected && onMove(selected, square)) {
+      setSelection(null);
+      return;
+    }
+
+    // Only a piece that can actually move is worth selecting. Whether a square
+    // holds a piece is the wrong question — the side that is not to move holds
+    // plenty, and highlighting one promises a move it cannot offer.
+    setSelection(legalTargets(fen, square).length > 0 ? { square, fen } : null);
+  }
+
   // Both a highlight and an arrow: the highlight shows where the piece came
   // from and went, and the arrow makes the direction readable at a glance when
   // skimming a game quickly.
-  const squareStyles: Record<string, CSSProperties> = lastMove
-    ? {
-        [lastMove.from]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
-        [lastMove.to]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
-      }
-    : {};
+  const squareStyles: Record<string, CSSProperties> = {
+    ...(lastMove
+      ? {
+          [lastMove.from]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
+          [lastMove.to]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
+        }
+      : {}),
+    ...(selected ? { [selected]: { backgroundColor: SELECTED_HIGHLIGHT } } : {}),
+  };
 
   const arrows = lastMove
     ? [{ startSquare: lastMove.from, endSquare: lastMove.to, color: ARROW_COLOUR }]
@@ -178,28 +265,40 @@ export function AnalysisBoard({
   const badge =
     moveSymbol && lastMove ? { square: lastMove.to, symbol: moveSymbol } : null;
 
+  const targetSet = new Set(targets);
+
   /**
    * Supplying a renderer *replaces* the square the board would have drawn,
    * including the element that carries `squareStyles` — so the renderer has to
    * lay the square's own style back down or the last-move highlight silently
    * disappears. That is the same trap the per-square colour options set once
    * before, which is why the renderer is only installed when there is actually
-   * a badge to draw.
+   * something extra to draw.
    */
-  const squareRenderer = badge
-    ? ({ square, children }: { square: string; children?: ReactNode }) => (
-        <div
-          style={{
-            ...SQUARE_STYLE,
-            position: "relative",
-            ...squareStyles[square],
-          }}
-        >
-          {children}
-          {square === badge.square ? <SymbolBadge symbol={badge.symbol} /> : null}
-        </div>
-      )
-    : undefined;
+  const squareRenderer =
+    badge || targetSet.size > 0
+      ? ({
+          square,
+          piece,
+          children,
+        }: {
+          square: string;
+          piece: unknown;
+          children?: ReactNode;
+        }) => (
+          <div
+            style={{
+              ...SQUARE_STYLE,
+              position: "relative",
+              ...squareStyles[square],
+            }}
+          >
+            {children}
+            {targetSet.has(square) ? <TargetMark occupied={piece !== null} /> : null}
+            {square === badge?.square ? <SymbolBadge symbol={badge.symbol} /> : null}
+          </div>
+        )
+      : undefined;
 
   return (
     <Chessboard
@@ -207,10 +306,18 @@ export function AnalysisBoard({
         position: fen,
         boardOrientation: orientation,
         allowDragging: onMove !== undefined,
-        onPieceDrop: ({ sourceSquare, targetSquare }) =>
-          targetSquare !== null && onMove !== undefined
+        onPieceDrop: ({ sourceSquare, targetSquare }) => {
+          // A drag supersedes whatever was selected, however it ends.
+          setSelection(null);
+
+          return targetSquare !== null && onMove !== undefined
             ? onMove(sourceSquare, targetSquare)
-            : false,
+            : false;
+        },
+        // Clicking a piece and then a square, which is the only way to move on
+        // a touch screen where a drag is a scroll. The library fires this for
+        // taps as well as clicks.
+        onSquareClick: handleSquareClick,
         // Drawing arrows and highlights by hand is how analysis is discussed;
         // right-drag on the board, as in every other chess interface.
         allowDrawingArrows: true,
