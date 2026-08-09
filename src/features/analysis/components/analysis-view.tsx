@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   Loader2,
   PanelRightClose,
   PanelRightOpen,
@@ -41,6 +42,7 @@ import {
   withNags,
 } from "@/core/chess/pgn/edit-tree";
 import { persistGame } from "@/features/games/edit/save-game";
+import { exportGamesAsPgn, pgnFilename } from "@/features/games/export/export-pgn";
 import { saveSettings } from "@/lib/settings";
 import { useSettings } from "@/features/shell/use-settings";
 import { useShortcut } from "@/features/shell/use-shortcut";
@@ -229,6 +231,26 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     }
   };
 
+  /**
+   * Export exactly what is stored, not the draft on screen.
+   *
+   * Unsaved edits are deliberately left out: the file is a copy of the game as
+   * the database holds it, and silently exporting something that does not exist
+   * anywhere else would be the surprising choice. The Save button is right
+   * beside this one when there is something to save.
+   */
+  const exportGame = async () => {
+    try {
+      const written = await exportGamesAsPgn([gameId], pgnFilename(game.record));
+
+      if (written === 0) toast.error("This game has no stored text to export");
+    } catch (error) {
+      toast.error("Could not export the game", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
+
   return (
     // Proportional columns rather than a fixed or viewport-derived board width:
     // a column that asks for more than it receives makes the board measure one
@@ -277,6 +299,17 @@ export function AnalysisView({ gameId }: { gameId: number }) {
             onClick={toggleFocusMode}
           >
             {focusMode ? <PanelRightOpen /> : <PanelRightClose />}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="Export this game as PGN"
+            title="Export this game as PGN"
+            onClick={() => void exportGame()}
+          >
+            <Download />
           </Button>
 
           <EditDetailsDialog
