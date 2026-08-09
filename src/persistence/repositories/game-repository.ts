@@ -252,6 +252,22 @@ export async function getFullGame(id: number): Promise<FullGame | null> {
 }
 
 /**
+ * The stored PGN of each game, in the order asked for.
+ *
+ * Only the text, because that is all an export needs and a game's record is
+ * the larger half of it. Ids with nothing stored are skipped rather than
+ * reported: a game that vanished between listing and reading is one fewer game
+ * in the file, not a failed export.
+ */
+export async function getGamePgns(ids: readonly number[]): Promise<string[]> {
+  const contents = await db.gameContents.bulkGet([...ids]);
+
+  return contents
+    .filter((content) => content !== undefined)
+    .map((content) => content.pgn);
+}
+
+/**
  * Delete a game, its text and its position occurrences.
  *
  * Unique positions are intentionally left in place: notes, tags and future

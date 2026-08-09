@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mainline, parseGameTree, type TreeNode } from "./parse-tree";
-import { writePgn } from "./write-pgn";
+import { joinPgnGames, pgnGameChunk, writePgn } from "./write-pgn";
+import { splitPgnGames } from "./split-pgn";
 
 function reparse(pgn: string) {
   const tree = parseGameTree(pgn);
@@ -137,6 +138,34 @@ describe("round trip", () => {
     const rewritten = mainline(parseGameTree(writePgn(tree.headers, tree.root)).root);
 
     expect(rewritten.map((n) => n.san)).toEqual(original);
+  });
+});
+
+describe("joining games into a file", () => {
+  const game = (result: string) =>
+    writePgn({ Result: result }, parseGameTree(`1.e4 e5 ${result}`).root);
+
+  it("separates games by a blank line", () => {
+    // The result terminates one game and the next begins with a tag pair; the
+    // blank line between them is the only thing marking the boundary.
+    expect(joinPgnGames([game("1-0"), game("0-1")])).toContain('1-0\n\n[Result "0-1"]');
+  });
+
+  it("does not double a newline the game already ends with", () => {
+    // Two blank lines read as an empty game between the two real ones.
+    expect(pgnGameChunk("[Event \"x\"]\n\n1.e4 *\n")).toBe('[Event "x"]\n\n1.e4 *\n\n');
+  });
+
+  it("survives the reader that will split it apart again", () => {
+    // Export is only useful if it can be imported, here or anywhere else, so
+    // the file is checked against the splitter this app reads PGN with.
+    const file = joinPgnGames([game("1-0"), game("0-1"), game("1/2-1/2")]);
+
+    expect(splitPgnGames(file)).toHaveLength(3);
+  });
+
+  it("writes nothing for no games", () => {
+    expect(joinPgnGames([])).toBe("");
   });
 });
 

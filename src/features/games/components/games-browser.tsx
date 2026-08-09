@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { deleteGame } from "@/persistence/repositories/game-repository";
+import { collectionFilename, exportGamesAsPgn } from "../export/export-pgn";
 import { GameDetail } from "./game-detail";
 import { GameFilters } from "./game-filters";
 import { GameList } from "./game-list";
@@ -93,6 +94,32 @@ export function GamesBrowser() {
     }
   }
 
+  const [exporting, setExporting] = useState(false);
+
+  /**
+   * Write the listed games to a file.
+   *
+   * `ids` is every match in display order, not the handful currently rendered:
+   * the list is virtualised, so what is in the DOM is a window onto the result
+   * and exporting that would quietly produce a fraction of the file.
+   */
+  async function exportListed() {
+    setExporting(true);
+
+    try {
+      const written = await exportGamesAsPgn(ids, collectionFilename());
+      toast.success(
+        written === 1 ? "Exported 1 game" : `Exported ${written} games`,
+      );
+    } catch (error) {
+      toast.error("Could not export the games", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     // Caged to the viewport only where the filters sit on one or two rows.
     // Narrow enough and they stack one per row and take more height than the
@@ -109,6 +136,8 @@ export function GamesBrowser() {
         onFilterChange={setFilter}
         onSortChange={setSort}
         resultCount={ids.length}
+        onExport={() => void exportListed()}
+        exporting={exporting}
       />
 
       <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_24rem]">
