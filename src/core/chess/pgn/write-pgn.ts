@@ -137,23 +137,6 @@ function wrap(tokens: string[], limit = 80): string {
 }
 
 /**
- * A game's PGN, terminated so another can follow it in the same file.
- *
- * The standard separates games by a blank line, and that is the only thing
- * marking where one ends: a reader splits on it. Trimming first rather than
- * appending blindly, because whether a stored game already ends in a newline
- * depends on where it came from, and two blank lines read as an empty game.
- */
-export function pgnGameChunk(pgn: string): string {
-  return `${pgn.trimEnd()}\n\n`;
-}
-
-/** Several games as the contents of one PGN file. */
-export function joinPgnGames(games: readonly string[]): string {
-  return games.map(pgnGameChunk).join("");
-}
-
-/**
  * Write a game back to PGN.
  *
  * Editing works by changing the tree and writing it back, so this is the

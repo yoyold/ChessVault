@@ -1,7 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { Download, Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -18,9 +18,6 @@ interface GameFiltersProps {
   onFilterChange: (filter: GameFilter) => void;
   onSortChange: (sort: GameSort) => void;
   resultCount: number;
-  /** Writes the games currently listed to a file. */
-  onExport: () => void;
-  exporting: boolean;
 }
 
 /**
@@ -56,8 +53,6 @@ export function GameFilters({
   onFilterChange,
   onSortChange,
   resultCount,
-  onExport,
-  exporting,
 }: GameFiltersProps) {
   const options = useFilterOptions();
 
@@ -243,30 +238,10 @@ export function GameFilters({
         ) : null}
       </div>
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-sm">
+      <div className="text-muted-foreground flex items-center gap-3 text-sm">
         <span className="tabular-nums">
           {resultCount.toLocaleString()} game{resultCount === 1 ? "" : "s"}
         </span>
-
-        {/*
-          Beside the count on purpose: it exports what the count counts. With a
-          filter active that is a subset, and a button promising "all" next to a
-          number saying otherwise would be the misleading pair.
-        */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1"
-          disabled={exporting || resultCount === 0}
-          onClick={onExport}
-        >
-          {exporting ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Download className="size-3.5" />
-          )}
-          Export
-        </Button>
 
         <span className={cn("ml-auto flex items-center gap-2")}>
           Sort
