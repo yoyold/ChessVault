@@ -298,8 +298,12 @@ export async function queryGameIds(
  *
  * Must agree with the index-only path, which reverses ascending order: an
  * empty date sorts before every real one ascending, so it lands last here.
+ *
+ * Exported because any list of games assembled outside this module — the
+ * opening explorer's, for one — has to present them in the same order the game
+ * list does; two subtly different date orders in one application read as a bug.
  */
-function compareForSort(a: GameRecord, b: GameRecord, sort: GameSort): number {
+export function compareForSort(a: GameRecord, b: GameRecord, sort: GameSort): number {
   if (sort === "imported") return b.importedAt - a.importedAt;
 
   if (sort === "opponentElo") {
