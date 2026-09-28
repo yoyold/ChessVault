@@ -168,11 +168,26 @@ describe("rejecting incompatible snapshots", () => {
     );
   });
 
-  it("rejects a different schema version", () => {
-    // Imported records are not migrated, so cross-version restore is unsafe.
+  it("rejects a snapshot from a newer schema", () => {
+    // Newer records may carry fields this build does not know, and writing
+    // them in would silently drop them.
     expect(() => assertRestorable({ ...validSnapshot(), schemaVersion: db.verno + 1 })).toThrow(
-      /different app version/,
+      /newer version/,
     );
+  });
+
+  it("accepts a snapshot from an older schema", () => {
+    // Refusing these would turn every backup into dead weight at the next
+    // schema change; restore carries them forward instead.
+    expect(() => assertRestorable({ ...validSnapshot(), schemaVersion: 1 })).not.toThrow();
+  });
+
+  it("rejects a snapshot that does not say which version wrote it", () => {
+    for (const schemaVersion of [undefined, 0, 2.5, "5"]) {
+      expect(() =>
+        assertRestorable({ ...validSnapshot(), schemaVersion: schemaVersion as never }),
+      ).toThrow(/which app version/);
+    }
   });
 
   it("rejects a non-object", () => {
@@ -195,5 +210,76 @@ describe("rejecting incompatible snapshots", () => {
 
     // A refused restore must leave everything as it was.
     expect(await db.games.count()).toBe(before);
+  });
+});
+
+describe("restoring across schema versions", () => {
+  it("carries an older snapshot forward to the current schema", async () => {
+    await clearAll();
+
+    // A game as the first schema stored it: text inline, missing date as null.
+    const legacy = {
+      format: SNAPSHOT_FORMAT,
+      schemaVersion: 1,
+      createdAt: 0,
+      device: "old laptop",
+      data: {
+        games: [
+          {
+            id: 3,
+            pgn: '[White "Dony, Lukas"]\n[Black "Opp"]\n\n1. e4 e5 1-0',
+            headers: { White: "Dony, Lukas", Black: "Opp", BlackElo: "1400" },
+            contentHash: "legacy",
+            white: "Dony, Lukas",
+            black: "Opp",
+            result: "1-0",
+            dateIso: null,
+            event: null,
+            site: null,
+            round: null,
+            eco: null,
+            opening: null,
+            timeControl: null,
+            playerColor: "white",
+            tags: [],
+            notes: "",
+            plyCount: 2,
+            finalFen: "8/8/8/8/8/8/8/8 w - - 0 1",
+            searchTokens: [],
+            importedAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        gameContents: [],
+        positions: [],
+        gamePositions: [],
+        evaluations: [],
+        repertoireMoves: [],
+      },
+      settings: { playerNames: ["Dony, Lukas"], focusMode: false },
+    };
+
+    await restoreSnapshot(legacy);
+
+    const game = await db.games.get(3);
+    expect(game?.dateIso).toBe("");
+    expect(game?.opponentElo).toBe(1400);
+    expect((await db.gameContents.get(3))?.pgn).toContain("1. e4 e5");
+  });
+});
+
+describe("what a snapshot must never contain", () => {
+  it("leaves the GitHub token out", async () => {
+    // A backup file travels — attached to a mail, copied to a stick. The token
+    // lives under its own storage key precisely so it cannot ride along.
+    window.localStorage.setItem(
+      "chessvault.sync.config",
+      JSON.stringify({ token: "github_pat_SECRET_VALUE", owner: "o", repo: "r" }),
+    );
+
+    const json = JSON.stringify(await createSnapshot("device"));
+
+    expect(json).not.toContain("github_pat_SECRET_VALUE");
+    window.localStorage.removeItem("chessvault.sync.config");
   });
 });

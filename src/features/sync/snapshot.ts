@@ -7,6 +7,7 @@ import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
 import type { RepertoireMove } from "@/core/domain/repertoire";
 import { db } from "@/persistence/db";
+import { upgradeRows } from "@/persistence/schema-upgrade";
 import { getSettings, saveSettings, type AppSettings } from "@/lib/settings";
 
 /**
@@ -116,13 +117,20 @@ export function assertRestorable(value: unknown): asserts value is Snapshot {
     );
   }
 
-  if (snapshot.schemaVersion !== db.verno) {
-    // Records are stored in their raw shape, and Dexie's migrations run on the
-    // live database rather than on imported arrays, so a snapshot from a
-    // different schema version cannot be safely written in. Both devices on the
-    // same deployed build match; a mismatch means one needs updating first.
+  if (
+    typeof snapshot.schemaVersion !== "number" ||
+    !Number.isInteger(snapshot.schemaVersion) ||
+    snapshot.schemaVersion < 1
+  ) {
+    throw new SnapshotError("This snapshot does not say which app version wrote it.");
+  }
+
+  if (snapshot.schemaVersion > db.verno) {
+    // An older snapshot is carried forward on restore, but a newer one cannot
+    // be carried back: its records may hold fields this build has never heard
+    // of, and writing them in would drop what it does not understand.
     throw new SnapshotError(
-      `This snapshot is from a different app version (schema ${snapshot.schemaVersion ?? "unknown"}, this app uses ${db.verno}). Update both devices to the same version first.`,
+      `This snapshot was written by a newer version of ChessVault (schema ${snapshot.schemaVersion}, this app uses ${db.verno}). Update this app first.`,
     );
   }
 
@@ -153,11 +161,22 @@ export function assertRestorable(value: unknown): asserts value is Snapshot {
  * does. Settings are applied only after the transaction commits, so a failed
  * restore does not change them either.
  *
+ * A snapshot from an older schema is brought up to date first, away from the
+ * live database, so the one transaction that does touch it only ever writes
+ * rows already in the current shape.
+ *
  * @throws SnapshotError if the snapshot is not restorable.
  */
 export async function restoreSnapshot(value: unknown): Promise<void> {
   assertRestorable(value);
-  const snapshot = value;
+  const snapshot: Snapshot =
+    value.schemaVersion < db.verno
+      ? {
+          ...value,
+          schemaVersion: db.verno,
+          data: (await upgradeRows(value.data, value.schemaVersion)) as Snapshot["data"],
+        }
+      : value;
 
   await db.transaction(
     "rw",

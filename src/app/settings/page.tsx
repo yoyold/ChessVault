@@ -1,5 +1,6 @@
 import { Separator } from "@/components/ui/separator";
 import { PlayerNamesSetting } from "@/features/shell/player-names-setting";
+import { DataSafetySetting } from "@/features/sync/data-safety-setting";
 import { SyncSetting } from "@/features/sync/sync-setting";
 
 export default function SettingsPage() {
@@ -10,6 +11,10 @@ export default function SettingsPage() {
       </header>
 
       <PlayerNamesSetting />
+      <Separator />
+      {/* Ahead of sync: it applies to everyone, where sync needs a GitHub
+          account first. */}
+      <DataSafetySetting />
       <Separator />
       <SyncSetting />
     </div>

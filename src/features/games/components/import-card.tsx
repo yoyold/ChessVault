@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { importPgn, type ImportResult } from "@/features/games/import/import-games";
 import { getSettings } from "@/lib/settings";
+import { getPersistenceState, requestPersistence } from "@/lib/storage-persistence";
 
 /**
  * Import PGN files into the database.
@@ -52,6 +53,14 @@ export function ImportCard() {
 
       if (totals.imported > 0) {
         toast.success(`Imported ${totals.imported} game${totals.imported === 1 ? "" : "s"}`);
+
+        // The first moment there is data worth keeping, so the moment to ask
+        // the browser to keep it. Asked after the import rather than on first
+        // visit: Firefox shows the request to the user, and a prompt about
+        // storage on an empty page has no reason the user can see.
+        void (async () => {
+          if ((await getPersistenceState()) === "best-effort") await requestPersistence();
+        })();
       } else if (totals.duplicates > 0) {
         toast.info("Every game in that file was already in the database");
       } else {

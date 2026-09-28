@@ -51,8 +51,15 @@ export class ChessVaultDatabase extends Dexie {
   /**
    * @param name Overridable so migration tests can open an isolated database
    *   under a throwaway name. Application code always uses the default.
+   * @param options.upToVersion Declare the schema only up to this version.
+   *   Restoring an older snapshot needs a database shaped as that version was,
+   *   so the snapshot can be written in and then carried forward by the real
+   *   upgrade functions. Stopping early is how that shape is produced without
+   *   keeping a second copy of every schema that could drift from this one.
+   *   The released blocks below are untouched; only the returns between them
+   *   are new.
    */
-  constructor(name = "chessvault") {
+  constructor(name = "chessvault", { upToVersion = Infinity }: { upToVersion?: number } = {}) {
     super(name);
 
     /**
@@ -100,6 +107,8 @@ export class ChessVaultDatabase extends Dexie {
       // `key` is the index that answers "which games reached this position?".
       gamePositions: "[gameId+ply], gameId, key",
     });
+
+    if (upToVersion < 2) return;
 
     /**
      * Version 2 — move PGN text and headers out of `games`, and replace null
@@ -172,6 +181,8 @@ export class ChessVaultDatabase extends Dexie {
         }
       });
 
+    if (upToVersion < 3) return;
+
     /**
      * Version 3 — stored engine evaluations.
      *
@@ -185,6 +196,8 @@ export class ChessVaultDatabase extends Dexie {
     this.version(3).stores({
       evaluations: "key, depth, evaluatedAt",
     });
+
+    if (upToVersion < 4) return;
 
     /**
      * Version 4 — player ratings and the derived opponent.
@@ -255,6 +268,8 @@ export class ChessVaultDatabase extends Dexie {
           );
         }
       });
+
+    if (upToVersion < 5) return;
 
     /**
      * Version 5 — the opening repertoire.
