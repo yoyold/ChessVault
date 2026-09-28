@@ -2,6 +2,7 @@ import type { TreeNode } from "@/core/chess/pgn/game-timeline";
 import type { PositionKey } from "@/core/chess/position-key";
 import { assessMove, type MoveAssessment, type MoveQuality } from "./move-quality";
 import type { Score } from "./types";
+import type { EvaluationRecord } from "@/core/domain/evaluation";
 
 /** The evaluation available for a position, as far as the report is concerned. */
 export interface EvaluatedPosition {
@@ -118,4 +119,36 @@ function mean(values: number[]): number {
   if (values.length === 0) return 0;
 
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+/**
+ * The report for a game, built from the evaluations already stored for it.
+ *
+ * A report is nothing but a reading of those evaluations: every one the engine
+ * produces is saved as it is made, so the stored set is the whole of what a
+ * report can know. Deriving it from storage rather than holding the last run's
+ * result in memory is what lets it survive a reload — held in memory, it was
+ * lost every time the page was, while the evaluations it came from sat in the
+ * database untouched.
+ *
+ * It also fills in as evaluations arrive, whether from a full analysis or from
+ * stepping through the game with the engine running.
+ *
+ * @returns Null when no move could be assessed, so a game nobody has analysed
+ *   shows no report rather than one listing every move as missing.
+ */
+export function reportFromEvaluations(
+  timeline: readonly TreeNode[],
+  records: ReadonlyMap<PositionKey, EvaluationRecord>,
+): GameReport | null {
+  const evaluated = new Map<PositionKey, EvaluatedPosition>();
+
+  for (const node of timeline) {
+    const best = records.get(node.key)?.lines[0];
+    if (best) evaluated.set(node.key, { score: best.score, bestMove: best.moves[0] ?? null });
+  }
+
+  const report = buildGameReport(timeline, evaluated);
+
+  return report.moves.length > 0 ? report : null;
 }

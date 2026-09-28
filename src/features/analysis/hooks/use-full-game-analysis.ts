@@ -2,8 +2,6 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { TreeNode } from "@/core/chess/pgn/game-timeline";
-import type { PositionKey } from "@/core/chess/position-key";
-import { buildGameReport, type EvaluatedPosition, type GameReport } from "@/core/analysis/game-report";
 import {
   getEvaluations,
   saveEvaluation,
@@ -17,7 +15,7 @@ export interface FullGameProgress {
 }
 
 /**
- * Analyse every position of a game and build a report from the results.
+ * Analyse every position of a game.
  *
  * Positions already evaluated deeply enough are skipped, so re-running after
  * adding a few moves, or analysing a game that transposes into one already
@@ -27,10 +25,13 @@ export interface FullGameProgress {
  * The run is sequential rather than parallel: there is one engine, and asking
  * it to search several positions at once would only interleave them and finish
  * no sooner.
+ *
+ * It produces evaluations and nothing else. Each is saved the moment it exists,
+ * and the report is read from what is saved — see `reportFromEvaluations` — so
+ * a report never lives only in this hook's memory, where a reload would lose it.
  */
 export function useFullGameAnalysis(engine: StockfishEngine) {
   const [progress, setProgress] = useState<FullGameProgress | null>(null);
-  const [report, setReport] = useState<GameReport | null>(null);
   const cancelled = useRef(false);
 
   const cancel = useCallback(() => {
@@ -41,7 +42,6 @@ export function useFullGameAnalysis(engine: StockfishEngine) {
   const run = useCallback(
     async (timeline: readonly TreeNode[], depth: number) => {
       cancelled.current = false;
-      setReport(null);
       setProgress({ analysed: 0, total: timeline.length });
 
       const stored = await getEvaluations(timeline.map((node) => node.key));
@@ -57,43 +57,19 @@ export function useFullGameAnalysis(engine: StockfishEngine) {
             // and requesting alternatives for every ply would multiply the cost
             // of a run that already takes a while.
             const result = await engine.analyse({ fen: node.fen, depth, multiPv: 1 });
-
             await saveEvaluation(node.key, result);
-            stored.set(node.key, {
-              key: node.key,
-              depth: result.depth,
-              multiPv: 1,
-              lines: result.lines,
-              engine: result.engine,
-              evaluatedAt: Date.now(),
-            });
           }
 
           setProgress({ analysed: index + 1, total: timeline.length });
         }
       } catch (error) {
         if (!(error instanceof AnalysisAbortedError)) throw error;
+      } finally {
+        setProgress(null);
       }
-
-      const evaluated = new Map<PositionKey, EvaluatedPosition>();
-
-      for (const [key, record] of stored) {
-        const best = record.lines[0];
-        if (!best) continue;
-
-        evaluated.set(key, {
-          score: best.score,
-          bestMove: best.moves[0] ?? null,
-        });
-      }
-
-      // Built even when cancelled: a partial report is useful, and
-      // `unevaluatedPlies` states plainly how much of the game it covers.
-      setReport(buildGameReport(timeline, evaluated));
-      setProgress(null);
     },
     [engine],
   );
 
-  return { run, cancel, progress, report, clearReport: () => setReport(null) };
+  return { run, cancel, progress };
 }

@@ -27,6 +27,7 @@ import {
 import type { Score } from "@/core/analysis/types";
 import type { MoveQuality } from "@/core/analysis/move-quality";
 import { symbolForMove } from "@/core/analysis/move-symbols";
+import { reportFromEvaluations } from "@/core/analysis/game-report";
 import { Button } from "@/components/ui/button";
 import { getFullGame } from "@/persistence/repositories/game-repository";
 import { getEvaluations } from "@/persistence/repositories/evaluation-repository";
@@ -125,11 +126,18 @@ export function AnalysisView({ gameId }: { gameId: number }) {
     [mainLine, storedEvaluations],
   );
 
+  // Read from the same stored evaluations the graph above draws from, so the
+  // two can never disagree — and neither goes missing after a reload.
+  const report = useMemo(
+    () => (storedEvaluations ? reportFromEvaluations(mainLine, storedEvaluations) : null),
+    [mainLine, storedEvaluations],
+  );
+
   const qualityByPly = useMemo(() => {
     const map = new Map<number, MoveQuality>();
-    for (const move of fullGame.report?.moves ?? []) map.set(move.ply, move.assessment.quality);
+    for (const move of report?.moves ?? []) map.set(move.ply, move.assessment.quality);
     return map;
-  }, [fullGame.report]);
+  }, [report]);
 
   // Arrow keys step through the game, as in every chess interface. Declared
   // before the early returns below, since hooks cannot be conditional.
@@ -173,6 +181,10 @@ export function AnalysisView({ gameId }: { gameId: number }) {
   const go = (next: number[] | null) => {
     if (next) setPath(next);
   };
+
+  // Everything drawn from the game report — the graph marker, the board badge —
+  // describes the moves as played, so it applies only while reading those.
+  const onMainline = safePath.every((step) => step === 0);
 
   // The bar prefers the running analysis so it moves as the engine thinks, and
   // falls back to a stored evaluation so a position analysed earlier still
@@ -348,7 +360,10 @@ export function AnalysisView({ gameId }: { gameId: number }) {
               fen={current.fen}
               orientation={game.record.playerColor === "black" ? "black" : "white"}
               lastMoveUci={current.uci}
-              moveSymbol={symbolForMove(current.nags, qualityByPly.get(current.ply))}
+              moveSymbol={symbolForMove(
+                current.nags,
+                onMainline ? qualityByPly.get(current.ply) : undefined,
+              )}
               onMove={playMove}
             />
           </div>
@@ -396,7 +411,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
             moves={mainLine.map((node) => node.san)}
             // The marker only applies while reading the mainline; inside a
             // sideline there is no position on the game's own graph.
-            currentPly={safePath.every((step) => step === 0) ? current.ply : -1}
+            currentPly={onMainline ? current.ply : -1}
             onSelectPly={(ply) => setPath(Array(ply).fill(0))}
           />
         )}
@@ -519,7 +534,7 @@ export function AnalysisView({ gameId }: { gameId: number }) {
             )}
           </div>
 
-          {fullGame.report ? <GameReportSummary report={fullGame.report} /> : null}
+          {report ? <GameReportSummary report={report} /> : null}
         </section>
 
         {/*

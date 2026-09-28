@@ -31,6 +31,14 @@ interface MoveListProps {
   /** The whole game, so variations can be shown where they branch. */
   root: TreeNode;
   currentPath: TreePath;
+  /**
+   * The engine's verdict on each move of the game as played, by ply.
+   *
+   * Mainline only: the report judges the moves that were played, and a ply
+   * number alone does not say which line a move belongs to. Looked up for a
+   * sideline move, it returned the verdict on the played move at the same
+   * depth — a "??" pinned on a move nobody evaluated.
+   */
   qualityByPly: Map<number, MoveQuality>;
   onSelect: (path: number[]) => void;
   /** Applied to the scroll container, so the caller sizes it. */
@@ -177,7 +185,7 @@ function Line({
         node={mainline}
         path={movePath}
         selected={samePath(movePath, currentPath)}
-        quality={qualityByPly.get(mainline.ply)}
+        quality={inVariation ? undefined : qualityByPly.get(mainline.ply)}
         forceNumber={needsNumber}
         inVariation={inVariation}
         onSelect={onSelect}
@@ -208,7 +216,8 @@ function Line({
               node={alternative}
               path={branchPath}
               selected={samePath(branchPath, currentPath)}
-              quality={qualityByPly.get(alternative.ply)}
+              // Opening a sideline, so never a move the report judged.
+              quality={undefined}
               forceNumber
               inVariation
               onSelect={onSelect}
