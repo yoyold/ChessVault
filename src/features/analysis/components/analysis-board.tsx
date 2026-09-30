@@ -8,6 +8,7 @@ import {
   type MoveSymbol,
 } from "@/core/analysis/move-symbols";
 import { legalTargets } from "@/core/chess/legal-moves";
+import { BoardErrorBoundary } from "./board-error-boundary";
 
 /**
  * Square colours are deliberately not set here.
@@ -301,35 +302,37 @@ export function AnalysisBoard({
       : undefined;
 
   return (
-    <Chessboard
-      options={{
-        position: fen,
-        boardOrientation: orientation,
-        allowDragging: onMove !== undefined,
-        onPieceDrop: ({ sourceSquare, targetSquare }) => {
-          // A drag supersedes whatever was selected, however it ends.
-          setSelection(null);
+    <BoardErrorBoundary position={fen}>
+      <Chessboard
+        options={{
+          position: fen,
+          boardOrientation: orientation,
+          allowDragging: onMove !== undefined,
+          onPieceDrop: ({ sourceSquare, targetSquare }) => {
+            // A drag supersedes whatever was selected, however it ends.
+            setSelection(null);
 
-          return targetSquare !== null && onMove !== undefined
-            ? onMove(sourceSquare, targetSquare)
-            : false;
-        },
-        // Clicking a piece and then a square, which is the only way to move on
-        // a touch screen where a drag is a scroll. The library fires this for
-        // taps as well as clicks.
-        onSquareClick: handleSquareClick,
-        // Drawing arrows and highlights by hand is how analysis is discussed;
-        // right-drag on the board, as in every other chess interface.
-        allowDrawingArrows: true,
-        clearArrowsOnPositionChange: true,
-        arrows,
-        squareStyles,
-        showNotation: true,
-        animationDurationInMs: 150,
-        boardStyle: BOARD_STYLE,
-        squareStyle: SQUARE_STYLE,
-        squareRenderer,
-      }}
-    />
+            return targetSquare !== null && onMove !== undefined
+              ? onMove(sourceSquare, targetSquare)
+              : false;
+          },
+          // Clicking a piece and then a square, which is the only way to move on
+          // a touch screen where a drag is a scroll. The library fires this for
+          // taps as well as clicks.
+          onSquareClick: handleSquareClick,
+          // Drawing arrows and highlights by hand is how analysis is discussed;
+          // right-drag on the board, as in every other chess interface.
+          allowDrawingArrows: true,
+          clearArrowsOnPositionChange: true,
+          arrows,
+          squareStyles,
+          showNotation: true,
+          animationDurationInMs: 150,
+          boardStyle: BOARD_STYLE,
+          squareStyle: SQUARE_STYLE,
+          squareRenderer,
+        }}
+      />
+    </BoardErrorBoundary>
   );
 }

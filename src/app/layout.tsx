@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/features/shell/app-shell";
 import { ThemeProvider } from "@/features/shell/theme-provider";
+import { ServiceWorkerRegistration } from "@/features/shell/service-worker";
 import { Toaster } from "@/components/ui/sonner";
 
 // The variable names must match those `globals.css` consumes: its `@theme`
@@ -41,6 +42,7 @@ export default function RootLayout({
         <ThemeProvider>
           <AppShell>{children}</AppShell>
           <Toaster />
+          <ServiceWorkerRegistration />
         </ThemeProvider>
       </body>
     </html>
