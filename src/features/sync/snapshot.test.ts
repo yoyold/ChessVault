@@ -154,7 +154,7 @@ describe("rejecting incompatible snapshots", () => {
         evaluations: [],
         repertoireMoves: [],
       },
-      settings: { playerNames: [], focusMode: false },
+      settings: { playerNames: [], focusMode: false, analysisDepth: 14 },
     };
   }
 

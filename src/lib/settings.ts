@@ -30,6 +30,15 @@ export interface AppSettings {
    * view is how you practise judging a position yourself.
    */
   focusMode: boolean;
+
+  /**
+   * How deep the background analysis searches each position.
+   *
+   * Remembered because progress is counted against it: a collection analysed
+   * at 12 is not analysed at 16, and forgetting the choice on reload would make
+   * finished work look undone.
+   */
+  analysisDepth: number;
 }
 
 /**
@@ -39,6 +48,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   playerNames: Object.freeze([]) as unknown as string[],
   focusMode: false,
+  analysisDepth: 14,
 });
 
 const STORAGE_KEY = "chessvault.settings";
@@ -63,6 +73,13 @@ function parse(raw: string | null): AppSettings {
         typeof stored.focusMode === "boolean"
           ? stored.focusMode
           : DEFAULT_SETTINGS.focusMode,
+      analysisDepth:
+        typeof stored.analysisDepth === "number" &&
+        Number.isInteger(stored.analysisDepth) &&
+        stored.analysisDepth >= 1 &&
+        stored.analysisDepth <= 40
+          ? stored.analysisDepth
+          : DEFAULT_SETTINGS.analysisDepth,
     };
   } catch {
     // Settings are a convenience: corrupted or hand-edited storage must never

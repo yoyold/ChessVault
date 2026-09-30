@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { GameResult } from "@/core/domain/game";
 import { buildStatistics, ratingBand, type StatGame } from "./statistics";
 
+let nextId = 1;
+
 function game(overrides: Partial<StatGame> = {}): StatGame {
   return {
+    id: nextId++,
     result: "1-0",
     playerColor: "white",
     dateIso: "2026-05-24",

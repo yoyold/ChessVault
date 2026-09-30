@@ -17,7 +17,7 @@ beforeEach(() => {
 
 describe("getSettings", () => {
   it("returns defaults when nothing is stored", () => {
-    expect(getSettings()).toEqual({ playerNames: [], focusMode: false });
+    expect(getSettings()).toEqual({ playerNames: [], focusMode: false, analysisDepth: 14 });
   });
 
   it("returns a stable reference across calls", () => {
@@ -130,6 +130,6 @@ describe("getServerSettings", () => {
   it("returns the frozen defaults", () => {
     // Must be referentially stable for the server snapshot.
     expect(getServerSettings()).toBe(getServerSettings());
-    expect(getServerSettings()).toEqual({ playerNames: [], focusMode: false });
+    expect(getServerSettings()).toEqual({ playerNames: [], focusMode: false, analysisDepth: 14 });
   });
 });

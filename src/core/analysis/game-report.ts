@@ -141,6 +141,19 @@ export function reportFromEvaluations(
   timeline: readonly TreeNode[],
   records: ReadonlyMap<PositionKey, EvaluationRecord>,
 ): GameReport | null {
+  const report = buildGameReport(timeline, toEvaluatedPositions(timeline, records));
+
+  return report.moves.length > 0 ? report : null;
+}
+
+/**
+ * The part of each stored evaluation a report reads: the best line's score and
+ * its first move. Later lines are alternatives, not the engine's verdict.
+ */
+export function toEvaluatedPositions(
+  timeline: readonly TreeNode[],
+  records: ReadonlyMap<PositionKey, EvaluationRecord>,
+): Map<PositionKey, EvaluatedPosition> {
   const evaluated = new Map<PositionKey, EvaluatedPosition>();
 
   for (const node of timeline) {
@@ -148,7 +161,5 @@ export function reportFromEvaluations(
     if (best) evaluated.set(node.key, { score: best.score, bestMove: best.moves[0] ?? null });
   }
 
-  const report = buildGameReport(timeline, evaluated);
-
-  return report.moves.length > 0 ? report : null;
+  return evaluated;
 }

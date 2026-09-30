@@ -50,7 +50,7 @@ import { useShortcut } from "@/features/shell/use-shortcut";
 import { AnalysisBoard } from "./analysis-board";
 import { AnnotationEditor } from "./annotation-editor";
 import { EditDetailsDialog } from "./edit-details-dialog";
-import { useEngine } from "../hooks/use-engine";
+import { useInteractiveEngine } from "../background/analysis-provider";
 import { useEngineAnalysis, type EngineSettings } from "../hooks/use-engine-analysis";
 import { useFullGameAnalysis } from "../hooks/use-full-game-analysis";
 import { EnginePanel } from "./engine-panel";
@@ -61,7 +61,7 @@ import { GameReportSummary } from "./game-report-summary";
 import { MoveList } from "./move-list";
 
 export function AnalysisView({ gameId }: { gameId: number }) {
-  const engine = useEngine();
+  const engine = useInteractiveEngine();
 
   const [path, setPath] = useState<number[]>([]);
   const [settings, setSettings] = useState<EngineSettings>({ depth: 16, multiPv: 3 });

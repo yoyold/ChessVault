@@ -53,6 +53,7 @@ describe("schema", () => {
     // by migration.test.ts, which tests what actually matters.
     expect(db.tables.map((t) => t.name).sort()).toEqual([
       "evaluations",
+      "gameAnalyses",
       "gameContents",
       "gamePositions",
       "games",

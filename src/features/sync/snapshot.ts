@@ -187,6 +187,7 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
       db.gamePositions,
       db.evaluations,
       db.repertoireMoves,
+      db.gameAnalyses,
     ],
     async () => {
       await Promise.all([
@@ -196,6 +197,11 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
         db.gamePositions.clear(),
         db.evaluations.clear(),
         db.repertoireMoves.clear(),
+        // Derived from the games and evaluations being replaced, and keyed by
+        // game ids that now belong to other games. Not carried in a snapshot;
+        // the background analysis writes them again from the restored
+        // evaluations.
+        db.gameAnalyses.clear(),
       ]);
 
       await Promise.all([

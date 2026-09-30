@@ -187,7 +187,7 @@ export async function saveGame(
 ): Promise<number> {
   return db.transaction(
     "rw",
-    [db.games, db.gameContents, db.positions, db.gamePositions],
+    [db.games, db.gameContents, db.positions, db.gamePositions, db.gameAnalyses],
     async () => {
       const existing = gameId === undefined ? undefined : await db.games.get(gameId);
 
@@ -227,6 +227,11 @@ export async function saveGame(
           })),
         ),
       ]);
+
+      // Any analysis of the old moves no longer describes this game. Dropped
+      // rather than kept in step: the background analysis writes it again,
+      // and from the evaluations already stored that takes no engine time.
+      await db.gameAnalyses.delete(id);
 
       return id;
     },
@@ -277,10 +282,11 @@ export async function getGamePgns(ids: readonly number[]): Promise<string[]> {
 export async function deleteGame(id: number): Promise<void> {
   await db.transaction(
     "rw",
-    [db.games, db.gameContents, db.gamePositions],
+    [db.games, db.gameContents, db.gamePositions, db.gameAnalyses],
     async () => {
       await db.gamePositions.where("gameId").equals(id).delete();
       await db.gameContents.delete(id);
+      await db.gameAnalyses.delete(id);
       await db.games.delete(id);
     },
   );

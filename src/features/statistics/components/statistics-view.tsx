@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import type { Color } from "@/core/domain/game";
+import { buildAccuracy, type AccuracyStatistics } from "@/core/statistics/accuracy";
 import {
   buildStatistics,
   type Breakdown,
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { loadStatisticsSource } from "@/persistence/repositories/statistics-repository";
 import { cn } from "@/lib/utils";
 import { BreakdownTable, type BreakdownRow } from "./breakdown-table";
+import { AccuracySection } from "./accuracy-section";
 import { RatingChart } from "./rating-chart";
 
 const SELECT_CLASS = "border-input bg-background h-9 rounded-md border px-2 text-sm";
@@ -140,10 +142,11 @@ function ShowMore({
  * work on: by colour, by opponent strength, over time, by opening and by
  * tournament.
  *
- * Everything here is computed from results and ratings, which every game has.
- * Measures of move quality need an engine evaluation of every game and are not
- * shown until those exist — a figure resting on the few games that happen to
- * have been analysed would describe those games, not the player.
+ * The results and ratings come from every game. Move quality comes from the
+ * engine analysis of each game, which the background analysis builds up over
+ * time; that section always says how many games it rests on, because a figure
+ * from the few games that happen to be analysed describes those games, not the
+ * player.
  */
 export function StatisticsView() {
   const source = useLiveQuery(loadStatisticsSource);
@@ -158,8 +161,12 @@ export function StatisticsView() {
     () => (source ? buildStatistics(source.games, periodFor(periodId)) : null),
     [source, periodId],
   );
+  const accuracy = useMemo(
+    () => (source ? buildAccuracy(source.games, source.analyses, periodFor(periodId)) : null),
+    [source, periodId],
+  );
 
-  if (!source || !allTime || !stats) {
+  if (!source || !allTime || !stats || !accuracy) {
     return (
       <div className="flex flex-col gap-4">
         <Skeleton className="h-9 w-48" />
@@ -240,6 +247,7 @@ export function StatisticsView() {
       ) : (
         <PeriodStatistics
           stats={stats}
+          accuracy={accuracy}
           openingColor={openingColor}
           onOpeningColorChange={setOpeningColor}
           allOpenings={allOpenings}
@@ -254,6 +262,7 @@ export function StatisticsView() {
 
 function PeriodStatistics({
   stats,
+  accuracy,
   openingColor,
   onOpeningColorChange,
   allOpenings,
@@ -262,6 +271,7 @@ function PeriodStatistics({
   onAllEventsChange,
 }: {
   stats: Statistics;
+  accuracy: AccuracyStatistics;
   openingColor: Color;
   onOpeningColorChange: (color: Color) => void;
   allOpenings: boolean;
@@ -452,6 +462,8 @@ function PeriodStatistics({
           </>
         )}
       </Section>
+
+      <AccuracySection accuracy={accuracy} />
     </>
   );
 }

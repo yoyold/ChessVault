@@ -1,4 +1,5 @@
 import type { Color } from "@/core/domain/game";
+import type { GameAnalysisRecord } from "@/core/domain/game-analysis";
 import type { StatGame } from "@/core/statistics/statistics";
 import { db } from "@/persistence/db";
 
@@ -13,6 +14,13 @@ export interface StatisticsSource {
    * none of it would otherwise look like an empty record.
    */
   unattributed: number;
+  /**
+   * The engine analysis of each game that has one, by game id.
+   *
+   * Loaded in the same query as the games, so a statistics page left open
+   * fills in as the background analysis finishes game after game.
+   */
+  analyses: Map<number, GameAnalysisRecord>;
 }
 
 /**
@@ -31,6 +39,7 @@ export async function loadStatisticsSource(): Promise<StatisticsSource> {
     .anyOf("white", "black")
     .each((game) => {
       games.push({
+        id: game.id as number,
         result: game.result,
         playerColor: game.playerColor as Color,
         dateIso: game.dateIso,
@@ -42,5 +51,11 @@ export async function loadStatisticsSource(): Promise<StatisticsSource> {
       });
     });
 
-  return { games, unattributed: (await db.games.count()) - games.length };
+  const [total, analyses] = await Promise.all([db.games.count(), db.gameAnalyses.toArray()]);
+
+  return {
+    games,
+    unattributed: total - games.length,
+    analyses: new Map(analyses.map((record) => [record.gameId, record])),
+  };
 }

@@ -4,6 +4,7 @@ import "./globals.css";
 import { AppShell } from "@/features/shell/app-shell";
 import { ThemeProvider } from "@/features/shell/theme-provider";
 import { ServiceWorkerRegistration } from "@/features/shell/service-worker";
+import { AnalysisProvider } from "@/features/analysis/background/analysis-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 // The variable names must match those `globals.css` consumes: its `@theme`
@@ -40,7 +41,9 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <ThemeProvider>
-          <AppShell>{children}</AppShell>
+          <AnalysisProvider>
+            <AppShell>{children}</AppShell>
+          </AnalysisProvider>
           <Toaster />
           <ServiceWorkerRegistration />
         </ThemeProvider>

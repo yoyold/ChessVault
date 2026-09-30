@@ -11,6 +11,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { BackgroundAnalysisIndicator } from "@/features/analysis/background/background-analysis-indicator";
 import { CommandPalette } from "./command-palette";
 import { NavList } from "./nav-list";
 import { ThemeToggle } from "./theme-toggle";
@@ -71,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </span>
 
           <div className="ml-auto flex items-center gap-1">
+            <BackgroundAnalysisIndicator />
             {/*
               A visible affordance for the palette. The shortcut alone is
               undiscoverable, and the palette is the fastest route to anything

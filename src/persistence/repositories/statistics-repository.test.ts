@@ -35,17 +35,18 @@ function record(playerColor: Color | null, overrides: Partial<GameRecord> = {}):
 
 beforeEach(async () => {
   await db.open();
-  await db.games.clear();
+  await Promise.all([db.games.clear(), db.gameAnalyses.clear()]);
 });
 
 describe("loadStatisticsSource", () => {
   it("loads the owner's games in the shape the statistics read", async () => {
-    await db.games.add(record("white"));
+    const id = (await db.games.add(record("white"))) as number;
 
     const { games } = await loadStatisticsSource();
 
     expect(games).toEqual([
       {
+        id,
         result: "1-0",
         playerColor: "white",
         dateIso: "2026-05-24",
@@ -79,6 +80,6 @@ describe("loadStatisticsSource", () => {
   });
 
   it("is empty for an empty database", async () => {
-    expect(await loadStatisticsSource()).toEqual({ games: [], unattributed: 0 });
+    expect(await loadStatisticsSource()).toEqual({ games: [], unattributed: 0, analyses: new Map() });
   });
 });

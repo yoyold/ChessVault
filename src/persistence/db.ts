@@ -7,6 +7,7 @@ import type {
 import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
 import type { RepertoireMove } from "@/core/domain/repertoire";
+import type { GameAnalysisRecord } from "@/core/domain/game-analysis";
 import type { PositionKey } from "@/core/chess/position-key";
 import type { Color } from "@/core/domain/game";
 import { opponentPerspective, parseElo } from "@/core/domain/player-perspective";
@@ -47,6 +48,8 @@ export class ChessVaultDatabase extends Dexie {
 
   /** Keyed by `[color+fromKey+san]`, so the key type is a tuple. */
   repertoireMoves!: Table<RepertoireMove, [Color, PositionKey, string]>;
+
+  gameAnalyses!: EntityTable<GameAnalysisRecord, "gameId">;
 
   /**
    * @param name Overridable so migration tests can open an isolated database
@@ -289,6 +292,21 @@ export class ChessVaultDatabase extends Dexie {
      */
     this.version(5).stores({
       repertoireMoves: "[color+fromKey+san], [color+fromKey], [color+toKey], color, addedAt",
+    });
+
+    if (upToVersion < 6) return;
+
+    /**
+     * Version 6 — per-game analysis records.
+     *
+     * One row per analysed game, written by the background analysis and read
+     * whole by the statistics, so the primary key is the only index: no query
+     * looks a record up by anything but its game. The data is derived from the
+     * evaluations and can always be written again, so a new table with no
+     * migration of existing rows is all this version needs.
+     */
+    this.version(6).stores({
+      gameAnalyses: "gameId",
     });
   }
 }

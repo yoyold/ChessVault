@@ -17,6 +17,7 @@ import { expectedScore, performanceRating } from "./rating";
  * required rather than nullable.
  */
 export interface StatGame {
+  id: number;
   result: GameResult;
   playerColor: Color;
   /** `YYYY-MM-DD`, or empty when the game carries no usable date. */
@@ -190,7 +191,7 @@ function bucket<K>(map: Map<K, Accumulator>, key: K): Accumulator {
   return found;
 }
 
-function inPeriod(dateIso: string, period: Period): boolean {
+export function inPeriod(dateIso: string, period: Period): boolean {
   // ISO dates order as text, so plain comparison is a date comparison.
   if (period.from !== undefined && dateIso < period.from) return false;
   if (period.to !== undefined && dateIso > period.to) return false;
@@ -198,7 +199,7 @@ function inPeriod(dateIso: string, period: Period): boolean {
 }
 
 /** The entry that occurs most often; ties go to the alphabetically first. */
-function mostCommon(counts: Map<string, number>): string | null {
+export function mostCommon(counts: Map<string, number>): string | null {
   let best: string | null = null;
   let bestCount = 0;
 
