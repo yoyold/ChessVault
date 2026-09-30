@@ -9,6 +9,7 @@ import { positionKey } from "@/core/chess/position-key";
 import { formatMoveNumber, formatSanLine } from "@/core/chess/pgn/game-timeline";
 import type { Color, GameRecord } from "@/core/domain/game";
 import type { ExplorerMove, OutcomeTally } from "@/core/openings/explorer";
+import { OutcomeBar, ScorePercent } from "@/components/outcome-bar";
 import { ResultBadge } from "@/components/result-badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +19,6 @@ import {
   EXPLORER_GAME_LIMIT,
   getExplorerPosition,
 } from "@/persistence/repositories/opening-explorer";
-import { cn } from "@/lib/utils";
 
 /** Which of the collection's games the numbers are drawn from. */
 type Scope = "all" | "white" | "black";
@@ -230,7 +230,7 @@ function MoveTable({
 
               <OutcomeBar tally={move} className="min-w-0 flex-1" />
 
-              <ScorePercent tally={move} />
+              <ScorePercent tally={move} className="w-12 shrink-0" />
             </button>
           </li>
         ))}
@@ -243,81 +243,6 @@ function MoveTable({
         </p>
       ) : null}
     </section>
-  );
-}
-
-/**
- * Wins, draws and losses as one bar.
- *
- * Proportions of the *decided* games, not of every game: an unfinished game, or
- * one the owner was not in, has no result to show, and stretching the bar over
- * it would quietly turn missing information into a fourth outcome. How many
- * games the bar rests on is on its tooltip.
- */
-function OutcomeBar({ tally, className }: { tally: OutcomeTally; className?: string }) {
-  if (tally.scored === 0) {
-    return (
-      <span className={cn("text-muted-foreground truncate text-xs", className)}>
-        no finished games
-      </span>
-    );
-  }
-
-  const segments = [
-    { key: "win", count: tally.wins, style: "bg-result-win", label: "won" },
-    { key: "draw", count: tally.draws, style: "bg-result-draw", label: "drawn" },
-    { key: "loss", count: tally.losses, style: "bg-result-loss", label: "lost" },
-  ].filter((segment) => segment.count > 0);
-
-  const description = segments
-    .map((segment) => `${segment.count} ${segment.label}`)
-    .join(" · ");
-
-  return (
-    <span
-      role="img"
-      aria-label={description}
-      title={description}
-      className={cn("bg-muted flex h-3.5 overflow-hidden rounded-sm", className)}
-    >
-      {segments.map((segment) => (
-        <span
-          key={segment.key}
-          className={segment.style}
-          style={{ width: `${(segment.count / tally.scored) * 100}%` }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/**
- * The record as a single number: percentage of the available points.
- *
- * A line never decided shows a dash rather than a fabricated 50%, the same way
- * the extraction list does.
- */
-function ScorePercent({ tally }: { tally: OutcomeTally }) {
-  return (
-    <span
-      className={cn(
-        "w-12 shrink-0 text-right tabular-nums",
-        tally.scored === 0
-          ? "text-muted-foreground"
-          : tally.score >= 0.55
-            ? "text-result-win"
-            : tally.score <= 0.45
-              ? "text-result-loss"
-              : "text-muted-foreground",
-      )}
-      title={
-        tally.scored === 0
-          ? "No finished games yet"
-          : `${tally.scored} finished game${tally.scored === 1 ? "" : "s"}`
-      }
-    >
-      {tally.scored === 0 ? "—" : `${Math.round(tally.score * 100)}%`}
-    </span>
   );
 }
 
@@ -335,7 +260,7 @@ function GameList({
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-sm font-medium">Games that reached this position</h2>
         <OutcomeBar tally={tally} className="min-w-24 flex-1" />
-        <ScorePercent tally={tally} />
+        <ScorePercent tally={tally} className="w-12 shrink-0" />
       </div>
 
       <ul className="flex flex-col gap-0.5">

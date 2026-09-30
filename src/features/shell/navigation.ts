@@ -42,7 +42,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/endgames", label: "Endgames", icon: Flag, available: false },
   { href: "/tactics", label: "Tactics", icon: Target, available: false },
   { href: "/notes", label: "Notes", icon: NotebookPen, available: false },
-  { href: "/statistics", label: "Statistics", icon: BarChart3, available: false },
+  { href: "/statistics", label: "Statistics", icon: BarChart3, available: true },
   { href: "/settings", label: "Settings", icon: Settings, available: true },
 ];
 
