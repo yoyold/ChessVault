@@ -26,3 +26,19 @@ export function legalTargets(fen: string, from: string): string[] {
     return [];
   }
 }
+
+/**
+ * A move in coordinates — `g1f3` — from its algebraic notation in a position.
+ *
+ * The board marks moves by squares, while games store them as notation, so
+ * showing a stored move means playing it once to learn where it went. Null for
+ * a move that is not legal there, or a position that cannot be read.
+ */
+export function uciFromSan(fen: string, san: string): string | null {
+  try {
+    const move = new Chess(fen).move(san);
+    return `${move.from}${move.to}${move.promotion ?? ""}`;
+  } catch {
+    return null;
+  }
+}

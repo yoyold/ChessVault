@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { legalTargets } from "./legal-moves";
+import { legalTargets, uciFromSan } from "./legal-moves";
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -54,5 +54,20 @@ describe("legalTargets", () => {
 
   it("returns nothing for a square that does not exist", () => {
     expect(legalTargets(START, "z9")).toEqual([]);
+  });
+});
+
+describe("uciFromSan", () => {
+  it("finds the squares a move went between", () => {
+    expect(uciFromSan(START, "Nf3")).toBe("g1f3");
+  });
+
+  it("keeps a promotion", () => {
+    expect(uciFromSan("4k3/P7/8/8/8/8/8/4K3 w - - 0 1", "a8=Q+")).toBe("a7a8q");
+  });
+
+  it("is null for a move that is not legal there", () => {
+    expect(uciFromSan(START, "Nf6")).toBeNull();
+    expect(uciFromSan("not a fen", "e4")).toBeNull();
   });
 });

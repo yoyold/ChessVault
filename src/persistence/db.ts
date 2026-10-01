@@ -8,6 +8,7 @@ import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
 import type { RepertoireMove } from "@/core/domain/repertoire";
 import type { GameAnalysisRecord } from "@/core/domain/game-analysis";
+import type { TrainingCard } from "@/core/domain/training-card";
 import type { PositionKey } from "@/core/chess/position-key";
 import type { Color } from "@/core/domain/game";
 import { opponentPerspective, parseElo } from "@/core/domain/player-perspective";
@@ -50,6 +51,8 @@ export class ChessVaultDatabase extends Dexie {
   repertoireMoves!: Table<RepertoireMove, [Color, PositionKey, string]>;
 
   gameAnalyses!: EntityTable<GameAnalysisRecord, "gameId">;
+
+  trainingCards!: EntityTable<TrainingCard, "id">;
 
   /**
    * @param name Overridable so migration tests can open an isolated database
@@ -307,6 +310,20 @@ export class ChessVaultDatabase extends Dexie {
      */
     this.version(6).stores({
       gameAnalyses: "gameId",
+    });
+
+    if (upToVersion < 7) return;
+
+    /**
+     * Version 7 — training cards.
+     *
+     * `[kind+due]` answers the one question a trainer asks: which cards of
+     * this kind are due by now. A range over it gives them in due order, and
+     * the whole range gives every card of the kind. Neither part on its own
+     * answers anything the app asks, so neither gets an index of its own.
+     */
+    this.version(7).stores({
+      trainingCards: "id, [kind+due]",
     });
   }
 }

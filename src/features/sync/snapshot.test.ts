@@ -283,3 +283,61 @@ describe("what a snapshot must never contain", () => {
     window.localStorage.removeItem("chessvault.sync.config");
   });
 });
+
+describe("training progress in snapshots", () => {
+  const card = {
+    kind: "mistake" as const,
+    id: "mistake:k:Nf6",
+    fen: "k 0 3",
+    positionKey: "k" as never,
+    previousUci: null,
+    playedSan: "Nf6",
+    bestUci: "g7g6",
+    bestSan: "g6",
+    quality: "blunder" as const,
+    scoreBefore: { type: "cp" as const, value: 40 },
+    gameId: 1,
+    gameLabel: "game",
+    dateIso: "2026-01-01",
+    moveNumber: 3,
+    due: 5,
+    interval: 3,
+    ease: 2.3,
+    streak: 2,
+    lapses: 1,
+    reviews: 4,
+    firstReviewedAt: 1,
+    lastReviewedAt: 4,
+    createdAt: 1,
+  };
+
+  it("carries the review history, which nothing else could rebuild", async () => {
+    await clearAll();
+    await db.trainingCards.clear();
+    await db.trainingCards.add(card);
+
+    const snapshot = JSON.parse(JSON.stringify(await createSnapshot("device")));
+    await db.trainingCards.clear();
+    await restoreSnapshot(snapshot);
+
+    expect(await db.trainingCards.get(card.id)).toEqual(card);
+  });
+
+  it("restores a snapshot from before training existed, with no cards", async () => {
+    await db.trainingCards.clear();
+    await db.trainingCards.add(card);
+
+    const old = JSON.parse(JSON.stringify(await createSnapshot("device")));
+    delete old.data.trainingCards;
+    await restoreSnapshot(old);
+
+    expect(await db.trainingCards.count()).toBe(0);
+  });
+
+  it("refuses training cards that are not a list", async () => {
+    const broken = JSON.parse(JSON.stringify(await createSnapshot("device")));
+    broken.data.trainingCards = "oops";
+
+    expect(() => assertRestorable(broken)).toThrow(/training cards/);
+  });
+});

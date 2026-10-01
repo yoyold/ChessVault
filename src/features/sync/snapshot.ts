@@ -6,6 +6,7 @@ import type {
 import type { PositionRecord } from "@/core/domain/position";
 import type { EvaluationRecord } from "@/core/domain/evaluation";
 import type { RepertoireMove } from "@/core/domain/repertoire";
+import type { TrainingCard } from "@/core/domain/training-card";
 import { db } from "@/persistence/db";
 import { upgradeRows } from "@/persistence/schema-upgrade";
 import { getSettings, saveSettings, type AppSettings } from "@/lib/settings";
@@ -42,13 +43,18 @@ export interface Snapshot {
     gamePositions: GamePositionRecord[];
     evaluations: EvaluationRecord[];
     repertoireMoves: RepertoireMove[];
+    /**
+     * Training progress. Absent from snapshots written before training
+     * existed, which restore as having no cards rather than being refused.
+     */
+    trainingCards?: TrainingCard[];
   };
   settings: AppSettings;
 }
 
 /** Read the entire database and settings into a portable snapshot. */
 export async function createSnapshot(device: string): Promise<Snapshot> {
-  const [games, gameContents, positions, gamePositions, evaluations, repertoireMoves] =
+  const [games, gameContents, positions, gamePositions, evaluations, repertoireMoves, trainingCards] =
     await db.transaction(
       "r",
       [
@@ -58,6 +64,7 @@ export async function createSnapshot(device: string): Promise<Snapshot> {
         db.gamePositions,
         db.evaluations,
         db.repertoireMoves,
+        db.trainingCards,
       ],
       () =>
         Promise.all([
@@ -67,6 +74,9 @@ export async function createSnapshot(device: string): Promise<Snapshot> {
           db.gamePositions.toArray(),
           db.evaluations.toArray(),
           db.repertoireMoves.toArray(),
+          // The review history cannot be derived from anything else, so unlike
+          // the per-game analysis it travels with the snapshot.
+          db.trainingCards.toArray(),
         ]),
     );
 
@@ -82,6 +92,7 @@ export async function createSnapshot(device: string): Promise<Snapshot> {
       gamePositions,
       evaluations,
       repertoireMoves,
+      trainingCards,
     },
     settings: getSettings(),
   };
@@ -151,6 +162,11 @@ export function assertRestorable(value: unknown): asserts value is Snapshot {
       throw new SnapshotError(`This snapshot is missing its ${table}.`);
     }
   }
+
+  // Optional, being newer than the format; but present and malformed is wrong.
+  if (snapshot.data.trainingCards !== undefined && !Array.isArray(snapshot.data.trainingCards)) {
+    throw new SnapshotError("This snapshot's training cards are unreadable.");
+  }
 }
 
 /**
@@ -188,6 +204,7 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
       db.evaluations,
       db.repertoireMoves,
       db.gameAnalyses,
+      db.trainingCards,
     ],
     async () => {
       await Promise.all([
@@ -202,6 +219,7 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
         // the background analysis writes them again from the restored
         // evaluations.
         db.gameAnalyses.clear(),
+        db.trainingCards.clear(),
       ]);
 
       await Promise.all([
@@ -211,6 +229,7 @@ export async function restoreSnapshot(value: unknown): Promise<void> {
         db.gamePositions.bulkAdd(snapshot.data.gamePositions),
         db.evaluations.bulkAdd(snapshot.data.evaluations),
         db.repertoireMoves.bulkAdd(snapshot.data.repertoireMoves),
+        db.trainingCards.bulkAdd(snapshot.data.trainingCards ?? []),
       ]);
     },
   );

@@ -59,6 +59,7 @@ describe("schema", () => {
       "games",
       "positions",
       "repertoireMoves",
+      "trainingCards",
     ]);
   });
 });
