@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/persistence/db";
 import { getSettings, resetSettingsCache, saveSettings } from "@/lib/settings";
 import { importPgn } from "@/features/games/import/import-games";
+import { fakeImportWorker } from "@/features/games/import/fake-import-worker";
+import { workerIndexer } from "@/features/games/import/worker-parser";
 import { saveEvaluation } from "@/persistence/repositories/evaluation-repository";
 import { addRepertoireMove } from "@/persistence/repositories/repertoire-repository";
 import { positionKeyFromFen } from "@/core/chess/position-key";
@@ -68,8 +70,28 @@ describe("createSnapshot", () => {
     expect(snapshot.data.games).toHaveLength(2);
     expect(snapshot.data.gameContents).toHaveLength(2);
     expect(snapshot.data.evaluations).toHaveLength(1);
-    expect(snapshot.data.positions.length).toBeGreaterThan(0);
     expect(snapshot.settings.playerNames).toEqual(["Dony, Lukas"]);
+  });
+
+  it("leaves out the position index, which the games rebuild", async () => {
+    await seed();
+    expect(await db.gamePositions.count()).toBeGreaterThan(0);
+
+    const snapshot = await createSnapshot("Laptop");
+
+    expect(snapshot.data).not.toHaveProperty("gamePositions");
+    expect(snapshot.data.positions).toEqual([]);
+  });
+
+  it("keeps the positions the owner annotated", async () => {
+    await seed();
+    await db.positions.update(START_KEY, { notes: "Every game starts here", tags: ["start"] });
+
+    const snapshot = await createSnapshot("Laptop");
+
+    expect(snapshot.data.positions).toEqual([
+      expect.objectContaining({ key: START_KEY, notes: "Every game starts here", tags: ["start"] }),
+    ]);
   });
 
   it("produces a snapshot that serialises to JSON", async () => {
@@ -139,6 +161,104 @@ describe("restore round trip", () => {
   });
 });
 
+describe("rebuilding the position index on restore", () => {
+  /** Everything the index holds, comparable across a restore. */
+  async function index() {
+    const rows = await db.gamePositions.toArray();
+    const keys = (await db.positions.toArray()).map((position) => position.key);
+    return {
+      rows: rows.map((row) => `${row.gameId}:${row.ply}:${row.key}:${row.san}`).sort(),
+      keys: keys.sort(),
+    };
+  }
+
+  it("rebuilds exactly what the import built", async () => {
+    await seed();
+    const before = await index();
+    const snapshot = await createSnapshot("Laptop");
+
+    await clearAll();
+    await restoreSnapshot(JSON.parse(JSON.stringify(snapshot)));
+
+    expect(await index()).toEqual(before);
+  });
+
+  it("keeps annotations, even on a position no game reaches any more", async () => {
+    await seed();
+    const orphan = positionKeyFromFen("8/8/8/4k3/8/8/4K3/8 w - - 0 1");
+    await db.positions.put({
+      key: orphan,
+      sideToMove: "w",
+      notes: "Opposition",
+      tags: ["endgame"],
+      firstSeenAt: 1,
+    });
+    await db.positions.update(START_KEY, { notes: "Every game starts here" });
+    const snapshot = await createSnapshot("Laptop");
+
+    await clearAll();
+    await restoreSnapshot(snapshot);
+
+    expect(await db.positions.get(orphan)).toMatchObject({ notes: "Opposition", firstSeenAt: 1 });
+    expect(await db.positions.get(START_KEY)).toMatchObject({ notes: "Every game starts here" });
+    // The annotated start position is still linked to both games.
+    expect(await db.gamePositions.where("key").equals(START_KEY).count()).toBe(2);
+  });
+
+  it("rebuilds through the worker, and lets it go afterwards", async () => {
+    await seed();
+    const before = await index();
+    const snapshot = await createSnapshot("Laptop");
+    const worker = fakeImportWorker();
+
+    await clearAll();
+    await restoreSnapshot(snapshot, { indexer: () => workerIndexer(() => worker) });
+
+    expect(await index()).toEqual(before);
+    expect(worker.terminated).toBe(true);
+  });
+
+  it("changes nothing when the rebuild fails", async () => {
+    await seed();
+    const snapshot = await createSnapshot("Laptop");
+    await clearAll();
+    await importPgn(GAME_B, { ownerNames: [] });
+    const failing = { index: () => Promise.reject(new Error("No memory")), close() {} };
+
+    await expect(restoreSnapshot(snapshot, { indexer: () => failing })).rejects.toThrow(
+      "No memory",
+    );
+
+    expect(await db.games.count()).toBe(1);
+  });
+
+  it("restores a format 1 snapshot, which carried the index itself", async () => {
+    await seed();
+    const before = await index();
+    const current = await createSnapshot("Laptop");
+    const formatOne = {
+      ...current,
+      format: 1,
+      data: {
+        ...current.data,
+        positions: await db.positions.toArray(),
+        gamePositions: await db.gamePositions.toArray(),
+      },
+    };
+
+    await clearAll();
+    // It carries the index, so nothing needs parsing: no indexer is started.
+    await restoreSnapshot(formatOne, {
+      indexer: () => {
+        throw new Error("Not needed for a format 1 snapshot");
+      },
+    });
+
+    expect(await index()).toEqual(before);
+  });
+
+});
+
 describe("rejecting incompatible snapshots", () => {
   function validSnapshot(): Snapshot {
     return {
@@ -195,6 +315,15 @@ describe("rejecting incompatible snapshots", () => {
     expect(() => assertRestorable(null)).toThrow(SnapshotError);
   });
 
+  it("requires the position index in a format 1 snapshot", () => {
+    const data: Partial<Snapshot["data"]> = { ...validSnapshot().data };
+    delete data.gamePositions;
+    expect(() => assertRestorable({ ...validSnapshot(), format: 1, data })).toThrow(
+      /gamePositions/,
+    );
+    expect(() => assertRestorable({ ...validSnapshot(), data })).not.toThrow();
+  });
+
   it("rejects a snapshot missing a table", () => {
     const broken = validSnapshot();
     // @ts-expect-error deliberately removing a required table
@@ -245,7 +374,6 @@ describe("restoring across schema versions", () => {
             notes: "",
             plyCount: 2,
             finalFen: "8/8/8/8/8/8/8/8 w - - 0 1",
-            searchTokens: [],
             importedAt: 1,
             updatedAt: 1,
           },

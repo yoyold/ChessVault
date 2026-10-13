@@ -31,7 +31,6 @@ function game(overrides: Partial<GameRecord> = {}): GameRecord {
     notes: "",
     plyCount: 40,
     finalFen: "8/8/8/8/8/8/8/8 w - - 0 1",
-    searchTokens: ["carlsen", "magnus", "nepomniachtchi", "ian", "tata", "steel"],
     importedAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
     ...overrides,

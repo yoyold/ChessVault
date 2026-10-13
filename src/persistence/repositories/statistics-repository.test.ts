@@ -26,7 +26,6 @@ function record(playerColor: Color | null, overrides: Partial<GameRecord> = {}):
     notes: "a long private note",
     plyCount: 40,
     finalFen: "8/8/8/8/8/8/8/8 w - - 0 1",
-    searchTokens: [],
     importedAt: 1,
     updatedAt: 1,
     ...overrides,

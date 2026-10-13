@@ -95,15 +95,6 @@ export interface GameRecord {
   /** Position after the final move; lets the list render a thumbnail without replaying. */
   finalFen: string;
 
-  /**
-   * Lowercased tokens from players, event, site and opening.
-   *
-   * IndexedDB has no full-text search. A multi-entry index over tokens gives
-   * prefix matching through a real index instead of scanning every record,
-   * which is what keeps search interactive at the target collection size.
-   * Rebuilt whenever the fields it derives from change.
-   */
-  searchTokens: string[];
 
   importedAt: number;
   updatedAt: number;

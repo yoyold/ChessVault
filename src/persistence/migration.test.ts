@@ -280,6 +280,23 @@ describe("version 3 to 4", () => {
   });
 });
 
+describe("version 7 to 8", () => {
+  it("drops the search tokens and their index", async () => {
+    const name = uniqueName();
+    await seedLegacyDatabase(name, 2);
+
+    const db = new ChessVaultDatabase(name);
+    await db.open();
+
+    expect(await db.games.get(1)).not.toHaveProperty("searchTokens");
+    expect(db.games.schema.indexes.map((index) => index.name)).not.toContain("searchTokens");
+    // Everything else about the game is still there.
+    expect(await db.games.get(1)).toMatchObject({ tags: ["reviewed"], notes: "note 0" });
+
+    db.close();
+  });
+});
+
 describe("upgrading across several versions at once", () => {
   it("brings a version 1 database fully up to date", async () => {
     // A user returning after several releases upgrades through every version

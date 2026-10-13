@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BackgroundAnalysisPanel } from "@/features/analysis/background/background-analysis-panel";
+import { useBackgroundAnalysis } from "@/features/analysis/background/analysis-provider";
 import { DatabaseStats } from "@/features/games/components/database-stats";
 import { ImportCard } from "@/features/games/components/import-card";
+import { useSettings } from "@/features/shell/use-settings";
 import { db } from "@/persistence/db";
 import { RecentGames } from "./recent-games";
 import { TrainingToday } from "./training-today";
@@ -26,24 +29,42 @@ export function Dashboard() {
     return { games, owned };
   });
 
+  // Games arriving — an import running on this page — change how many there
+  // are to analyse; the panel only counts when it appears.
+  const { refresh } = useBackgroundAnalysis();
+  const { analysisDepth } = useSettings();
+  const owned = counts?.owned ?? 0;
+  useEffect(() => {
+    if (owned > 0) void refresh(analysisDepth);
+  }, [owned, analysisDepth, refresh]);
+
   if (!counts) return <Skeleton className="h-64 rounded-lg" />;
 
-  if (counts.games === 0) {
-    return (
-      <div className="flex flex-col gap-4">
+  return (
+    <div className="flex flex-col gap-3">
+      {counts.games === 0 ? (
         <p className="text-muted-foreground text-sm">
           Start by importing your games. Analysis, training and statistics all build on them.
         </p>
-        <ImportCard />
-      </div>
-    );
-  }
+      ) : (
+        <Overview games={counts.games} owned={counts.owned} />
+      )}
 
+      {/* Always the last child, whether the database is empty or not. The
+          first import fills the database while it runs, which switches the
+          page from one layout to the other; kept in the same place, the card
+          — and the import's progress and result in it — stays put. */}
+      <ImportCard />
+    </div>
+  );
+}
+
+function Overview({ games, owned }: { games: number; owned: number }) {
   return (
     <div className="flex flex-col gap-8">
-      {counts.owned === 0 ? (
+      {owned === 0 ? (
         <p className="rounded-lg border border-dashed p-4 text-sm">
-          None of your {counts.games.toLocaleString()} games is marked as yours yet.{" "}
+          None of your {games.toLocaleString()} games is marked as yours yet.{" "}
           <Link href="/settings/" className="underline underline-offset-2">
             Set your name in Settings
           </Link>{" "}
@@ -62,7 +83,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {counts.owned > 0 ? (
+      {owned > 0 ? (
         <section className="flex flex-col gap-3">
           <h2 className="font-medium">Engine analysis</h2>
           <p className="text-muted-foreground text-sm">
@@ -72,10 +93,10 @@ export function Dashboard() {
         </section>
       ) : null}
 
+      {/* The import card follows directly below, as part of this section. */}
       <section className="flex flex-col gap-3">
         <h2 className="font-medium">Collection</h2>
         <DatabaseStats />
-        <ImportCard />
       </section>
     </div>
   );

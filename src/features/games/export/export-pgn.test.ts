@@ -25,7 +25,6 @@ function record(overrides: Partial<GameRecord> = {}): GameRecord {
     notes: "",
     plyCount: 0,
     finalFen: "",
-    searchTokens: [],
     importedAt: 1,
     updatedAt: 1,
     ...overrides,

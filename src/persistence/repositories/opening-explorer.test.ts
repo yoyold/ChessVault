@@ -56,7 +56,6 @@ async function seedGame(
     notes: "",
     plyCount: options.moves.length,
     finalFen: board.fen(),
-    searchTokens: [],
     importedAt: 1,
     updatedAt: 1,
   };

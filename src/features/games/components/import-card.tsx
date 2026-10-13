@@ -4,17 +4,18 @@ import { useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { inlineParser, withFallback } from "@/features/games/import/batch-parser";
 import { importPgn, type ImportResult } from "@/features/games/import/import-games";
+import { workerParser } from "@/features/games/import/worker-parser";
 import { getSettings } from "@/lib/settings";
 import { getPersistenceState, requestPersistence } from "@/lib/storage-persistence";
 
 /**
  * Import PGN files into the database.
  *
- * Parsing currently runs on the main thread. That is acceptable for the file
- * sizes a personal collection is imported in, but a very large file will make
- * the interface unresponsive while it works; moving the pipeline into a Web
- * Worker is tracked with the rest of the game database interface.
+ * Games are parsed in a Web Worker and written here, a batch at a time, so a
+ * large file neither freezes the page nor has to be held parsed in memory.
+ * See ADR 0009.
  */
 export function ImportCard() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,6 +42,8 @@ export function ImportCard() {
         const result = await importPgn(await file.text(), {
           ownerNames: playerNames,
           onProgress: setProgress,
+          // Parsed in a worker, so a large file does not freeze the page.
+          parser: withFallback(() => workerParser(), inlineParser),
         });
 
         totals.total += result.total;

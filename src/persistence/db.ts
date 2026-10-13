@@ -325,6 +325,50 @@ export class ChessVaultDatabase extends Dexie {
     this.version(7).stores({
       trainingCards: "id, [kind+due]",
     });
+
+    if (upToVersion < 8) return;
+
+    /**
+     * Version 8 — drop the search token index.
+     *
+     * Game search matches substrings of the players' names (see
+     * `matchesText` in the game query), because prefix matching on indexed
+     * tokens found the wrong players. Nothing has read the index since, but
+     * every import still wrote the tokens and every write kept the index up to
+     * date — paid on every game, for no query.
+     *
+     * The field goes from the stored records too, so it stops taking space and
+     * cannot be mistaken for something still maintained.
+     */
+    this.version(8)
+      .stores({
+        games: [
+          "++id",
+          "contentHash",
+          "importedAt",
+          "dateIso",
+          "eco",
+          "opening",
+          "result",
+          "playerColor",
+          "white",
+          "black",
+          "event",
+          "timeControl",
+          "opponent",
+          "opponentElo",
+          "*tags",
+          "[playerColor+result]",
+        ].join(", "),
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table<GameRecord & { searchTokens?: string[] }, number>("games")
+          .toCollection()
+          .modify((game) => {
+            delete game.searchTokens;
+          });
+      });
   }
 }
 

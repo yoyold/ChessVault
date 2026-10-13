@@ -104,6 +104,28 @@ function cacheKeys(url, isNavigation) {
   return [url.href];
 }
 
+function isWorkerScript(request) {
+  return request.destination === "worker" || request.destination === "sharedworker";
+}
+
+/**
+ * The same response, no longer tied to the URL it was cached under.
+ *
+ * A worker takes its own location from the response that started it. A cached
+ * response carries the cache key — no query, no fragment — and the bundler's
+ * worker bootstrap reads its configuration from the fragment of the URL it was
+ * started with (`#params=…`). Answered from the cache as it is, the worker
+ * starts without it and fails. A response built here has no URL of its own,
+ * so the worker keeps the one it was asked for.
+ */
+function withoutUrl(response) {
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 async function respond(request, url) {
   const cache = await caches.open(CACHE);
   const isNavigation = request.mode === "navigate";
@@ -113,7 +135,7 @@ async function respond(request, url) {
   // different file.
   for (const key of cacheKeys(url, isNavigation)) {
     const cached = await cache.match(key, { ignoreSearch: true });
-    if (cached) return cached;
+    if (cached) return isWorkerScript(request) ? withoutUrl(cached) : cached;
   }
 
   try {

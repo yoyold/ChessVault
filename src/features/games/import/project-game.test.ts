@@ -79,13 +79,6 @@ describe("projectGame", () => {
     });
   });
 
-  it("builds search tokens across players, event and opening", () => {
-    const record = project(
-      '[White "Carlsen, Magnus"]\n[Event "Tata Steel"]\n\n1. e4 *',
-    );
-    expect(record.searchTokens).toContain("carlsen");
-    expect(record.searchTokens).toContain("tata");
-  });
 
   it("keeps the original PGN and headers verbatim", () => {
     const pgn = '[Event "Club"]\n[WhiteElo "2830"]\n\n1. e4 *';

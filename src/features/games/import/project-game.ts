@@ -6,7 +6,6 @@ import type {
 import type { ParsedGame } from "@/core/chess/pgn/parse-game";
 import { gameContentHash } from "@/core/chess/pgn/content-hash";
 import { normalisePgnDate } from "@/core/chess/pgn/pgn-date";
-import { buildSearchTokens } from "@/core/chess/search-tokens";
 import { matchesAnyPlayer } from "@/core/chess/player-identity";
 import {
   opponentPerspective,
@@ -105,7 +104,6 @@ export function projectGame(
       notes: "",
       plyCount: parsed.plyCount,
       finalFen: parsed.finalFen,
-      searchTokens: buildSearchTokens(white, black, event, site, opening),
       importedAt: options.now,
       updatedAt: options.now,
     },

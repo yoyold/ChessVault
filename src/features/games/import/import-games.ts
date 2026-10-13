@@ -1,18 +1,7 @@
-import { parseGame, PgnParseError } from "@/core/chess/pgn/parse-game";
-import { splitPgnGames } from "@/core/chess/pgn/split-pgn";
-import {
-  persistGameBatch,
-  type GameWithPositions,
-} from "@/persistence/repositories/game-repository";
-import { projectGame } from "./project-game";
+import { persistGameBatch } from "@/persistence/repositories/game-repository";
+import { inlineParser, type BatchParser, type ImportFailure } from "./batch-parser";
 
-export interface ImportFailure {
-  /** Position of the game within the file, 1-based, so it can be located by hand. */
-  gameNumber: number;
-  reason: string;
-  /** Opening characters of the offending game, to make it recognisable in a large file. */
-  excerpt: string;
-}
+export type { ImportFailure } from "./batch-parser";
 
 export interface ImportProgress {
   processed: number;
@@ -40,6 +29,13 @@ export interface ImportOptions {
    */
   batchSize?: number;
   onProgress?: (progress: ImportProgress) => void;
+  /**
+   * Where the games are parsed; on this thread unless given.
+   *
+   * The page passes a worker, so a large file does not freeze it. Closed when
+   * the import ends, however it ends.
+   */
+  parser?: BatchParser;
 }
 
 const DEFAULT_BATCH_SIZE = 200;
@@ -65,54 +61,27 @@ export async function importPgn(
     now = Date.now(),
     batchSize = DEFAULT_BATCH_SIZE,
     onProgress,
+    parser = inlineParser(),
   } = options;
 
-  const rawGames = splitPgnGames(text);
+  try {
+    const total = await parser.open(text, { ownerNames, now });
 
-  const result: ImportResult = {
-    total: rawGames.length,
-    imported: 0,
-    duplicates: 0,
-    failures: [],
-  };
+    const result: ImportResult = { total, imported: 0, duplicates: 0, failures: [] };
 
-  for (let start = 0; start < rawGames.length; start += batchSize) {
-    const slice = rawGames.slice(start, start + batchSize);
-    const batch: GameWithPositions[] = [];
+    for (let start = 0; start < total; start += batchSize) {
+      const { games, failures } = await parser.parse(start, batchSize);
+      result.failures.push(...failures);
 
-    slice.forEach((pgn, offset) => {
-      const gameNumber = start + offset + 1;
+      const { insertedIds, duplicates } = await persistGameBatch(games);
+      result.imported += insertedIds.length;
+      result.duplicates += duplicates;
 
-      try {
-        const parsed = parseGame(pgn);
-        const projected = projectGame(pgn, parsed, { ownerNames, now });
+      onProgress?.({ processed: Math.min(start + batchSize, total), total });
+    }
 
-        batch.push({
-          record: projected.record,
-          content: projected.content,
-          positions: parsed.positions,
-        });
-      } catch (error) {
-        result.failures.push({
-          gameNumber,
-          reason:
-            error instanceof PgnParseError
-              ? error.message
-              : "Unexpected error while parsing",
-          excerpt: pgn.slice(0, 120),
-        });
-      }
-    });
-
-    const { insertedIds, duplicates } = await persistGameBatch(batch);
-    result.imported += insertedIds.length;
-    result.duplicates += duplicates;
-
-    onProgress?.({
-      processed: Math.min(start + batchSize, rawGames.length),
-      total: rawGames.length,
-    });
+    return result;
+  } finally {
+    parser.close();
   }
-
-  return result;
 }

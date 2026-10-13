@@ -28,7 +28,6 @@ function makeGame(overrides: Partial<GameRecord> = {}): GameRecord {
     notes: "",
     plyCount: 2,
     finalFen: START_FEN,
-    searchTokens: ["carlsen", "magnus", "nepomniachtchi", "ian", "club"],
     importedAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
     ...overrides,
@@ -82,13 +81,6 @@ describe("games indexes", () => {
     expect(await db.games.where("tags").equals("sharp").count()).toBe(2);
   });
 
-  it("supports prefix search over the token index", async () => {
-    await db.games.bulkAdd([makeGame(), makeGame({ searchTokens: ["firouzja"] })]);
-
-    const hits = await db.games.where("searchTokens").startsWith("carl").toArray();
-    expect(hits).toHaveLength(1);
-    expect(hits[0].white).toBe("Carlsen, Magnus");
-  });
 
   it("queries the compound colour+result index used by win-rate statistics", async () => {
     await db.games.bulkAdd([

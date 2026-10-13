@@ -1,4 +1,4 @@
-import { buildSearchTokens } from "./search-tokens";
+import { nameTokens } from "./name-tokens";
 
 /**
  * Whether two PGN player names refer to the same person.
@@ -22,12 +22,12 @@ import { buildSearchTokens } from "./search-tokens";
 export function isSamePlayer(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false;
 
-  const tokensA = buildSearchTokens(a);
-  const tokensB = buildSearchTokens(b);
+  const tokensA = nameTokens(a);
+  const tokensB = nameTokens(b);
 
   if (tokensA.length === 0 || tokensA.length !== tokensB.length) return false;
 
-  // buildSearchTokens returns sorted, deduplicated tokens, so element-wise
+  // nameTokens returns sorted, deduplicated tokens, so element-wise
   // comparison is sufficient.
   return tokensA.every((token, index) => token === tokensB[index]);
 }
