@@ -3,22 +3,24 @@
 import { useState } from "react";
 import type { Color } from "@/core/domain/game";
 import { cn } from "@/lib/utils";
+import { OpeningTrainer } from "@/features/training/components/opening-trainer";
 import { ColorToggle } from "./color-toggle";
 import { ExplorerView } from "./explorer-view";
 import { ExtractionView } from "./extraction-view";
 import { RepertoireView } from "./repertoire-view";
 
-type Tab = "repertoire" | "extract" | "explore";
+type Tab = "repertoire" | "train" | "extract" | "explore";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "repertoire", label: "Repertoire" },
+  { id: "train", label: "Train" },
   { id: "extract", label: "From my games" },
   { id: "explore", label: "Explorer" },
 ];
 
 /**
- * The openings workspace: the repertoire itself, what the played games suggest
- * belongs in it, and the games themselves as an opening book.
+ * The openings workspace: the repertoire itself, training it, what the played
+ * games suggest belongs in it, and the games themselves as an opening book.
  *
  * Colour is held here rather than in any one view, so moving between them stays
  * on the same side — switching to the extraction list to check a line and back
@@ -57,6 +59,8 @@ export function OpeningsWorkspace() {
         // Keyed by colour so switching side starts from the beginning of that
         // repertoire rather than on a line the other side happened to be on.
         <RepertoireView key={color} color={color} />
+      ) : tab === "train" ? (
+        <OpeningTrainer color={color} onEditRepertoire={() => setTab("repertoire")} />
       ) : tab === "extract" ? (
         <ExtractionView color={color} />
       ) : (

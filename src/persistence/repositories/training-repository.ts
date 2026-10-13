@@ -1,7 +1,13 @@
 import Dexie from "dexie";
 import type { PositionKey } from "@/core/chess/position-key";
 import type { GameAnalysisRecord } from "@/core/domain/game-analysis";
-import type { MistakeCardContent, TrainingCard } from "@/core/domain/training-card";
+import type {
+  MistakeCard,
+  MistakeCardContent,
+  OpeningCard,
+  OpeningCardContent,
+  TrainingCard,
+} from "@/core/domain/training-card";
 import type { MistakeSource } from "@/core/training/mistake-cards";
 import { newReviewState, review, type Grade } from "@/core/training/scheduler";
 import { db } from "@/persistence/db";
@@ -40,9 +46,9 @@ export async function upsertCards(
 
     let added = 0;
     let updated = 0;
-    const cards: TrainingCard[] = ids.map((id, index) => {
+    const cards: MistakeCard[] = ids.map((id, index) => {
       const content = byId.get(id) as MistakeCardContent;
-      const current = existing[index];
+      const current = existing[index] as MistakeCard | undefined;
 
       if (!current) {
         added += 1;
@@ -66,12 +72,67 @@ export async function upsertCards(
   });
 }
 
+type CardOfKind<Kind extends TrainingCard["kind"]> = Extract<TrainingCard, { kind: Kind }>;
+
 /** Every card of a kind, in due order. */
-export async function getCards(kind: TrainingCard["kind"]): Promise<TrainingCard[]> {
-  return db.trainingCards
+export async function getCards<Kind extends TrainingCard["kind"]>(
+  kind: Kind,
+): Promise<CardOfKind<Kind>[]> {
+  const cards = await db.trainingCards
     .where("[kind+due]")
     .between([kind, Dexie.minKey], [kind, Dexie.maxKey])
     .toArray();
+  return cards as CardOfKind<Kind>[];
+}
+
+export interface ReplaceResult extends UpsertResult {
+  removed: number;
+}
+
+/**
+ * Make the opening cards match the repertoire.
+ *
+ * The repertoire is the source of truth, so this is a full replacement: cards
+ * for new positions are added, cards whose position left the repertoire are
+ * removed, and the rest keep their schedule.
+ *
+ * Except when the answer itself changed. A card whose prepared moves are no
+ * longer the same starts over: what was learned for it is now the wrong move,
+ * and a long interval would leave the old one in place for months.
+ */
+export async function replaceOpeningCards(
+  contents: readonly OpeningCardContent[],
+  now: number,
+): Promise<ReplaceResult> {
+  return db.transaction("rw", db.trainingCards, async () => {
+    const existing = new Map((await getCards("opening")).map((card) => [card.id, card]));
+
+    let added = 0;
+    let updated = 0;
+    const cards: OpeningCard[] = contents.map((content) => {
+      const current = existing.get(content.id);
+      existing.delete(content.id);
+
+      if (!current) {
+        added += 1;
+        return { ...content, ...newReviewState(now), createdAt: now };
+      }
+
+      updated += 1;
+      const sameAnswers =
+        current.answers.length === content.answers.length &&
+        current.answers.every((san) => content.answers.includes(san));
+      return sameAnswers
+        ? { ...current, ...content }
+        : { ...current, ...content, ...newReviewState(now) };
+    });
+
+    await db.trainingCards.bulkPut(cards);
+    // Whatever is left was not in the repertoire any more.
+    await db.trainingCards.bulkDelete([...existing.keys()]);
+
+    return { added, updated, removed: existing.size };
+  });
 }
 
 /**

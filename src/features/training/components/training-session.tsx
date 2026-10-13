@@ -1,50 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Chess } from "chess.js";
-import { Check, ExternalLink, Loader2, Trash2, X } from "lucide-react";
-import type { MoveQuality } from "@/core/analysis/move-quality";
+import { Check, Loader2, Trash2, X } from "lucide-react";
 import type { MoveSymbol } from "@/core/analysis/move-symbols";
-import type { TrainingCard } from "@/core/domain/training-card";
 import { Button } from "@/components/ui/button";
 import { AnalysisBoard } from "@/features/analysis/components/analysis-board";
-import { useInteractiveEngine } from "@/features/analysis/background/analysis-provider";
 import { deleteCard, recordReview } from "@/persistence/repositories/training-repository";
-import { judgeMove, type Verdict } from "../judge-move";
 
-type Phase =
-  | { step: "ask"; error: string | null }
-  | { step: "judging"; fen: string; uci: string }
-  | {
-      step: "answered";
-      verdict: Verdict;
-      fen: string;
-      uci: string;
-      /** For a wrong answer: whether the board shows the solution or the move played. */
-      showSolution: boolean;
-    };
-
-const ASK: Phase = { step: "ask", error: null };
-
-const SYMBOL_FOR_WRONG: Record<MoveQuality, MoveSymbol | null> = {
-  best: null,
-  good: null,
-  inaccuracy: "?!",
-  mistake: "?",
-  blunder: "??",
-};
-
-/** "3. Nf6" for White, "3… Nf6" for Black, as move numbers are written. */
-function numbered(card: TrainingCard, san: string): string {
-  const whiteToMove = card.fen.split(" ")[1] === "w";
-  return `${card.moveNumber}${whiteToMove ? "." : "…"} ${san}`;
+/** What a session needs of a card, whatever kind it is. */
+export interface SessionCard {
+  id: string;
+  /** The position to answer, with the side to move as the board's bottom side. */
+  fen: string;
+  /** The move into the position, shown on the board for context. */
+  previousUci: string | null;
 }
 
-function afterMove(fen: string, uci: string): string {
-  const board = new Chess(fen);
-  board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-  return board.fen();
+/** The judgement on one answer, as the session shows it. */
+export interface Answer {
+  correct: boolean;
+  /** What to say about the move. */
+  message: ReactNode;
+  /** A right move to show after a wrong one, in coordinates. */
+  solutionUci: string | null;
+  /** The mark for the move played, on the square it landed on. */
+  playedSymbol: MoveSymbol | null;
 }
 
 export interface SessionResult {
@@ -54,26 +35,76 @@ export interface SessionResult {
   missed: number;
 }
 
-export interface TrainingSessionProps {
+export interface TrainingSessionProps<Card extends SessionCard> {
   /** The cards to work through, in order. */
-  cards: readonly TrainingCard[];
+  cards: readonly Card[];
   onFinish: (result: SessionResult) => void;
+  /**
+   * Decide whether a move answers a card.
+   *
+   * May take a while — the engine may have to look — and may throw, in which
+   * case the user is asked to try again.
+   */
+  judge: (card: Card, move: { from: string; to: string; promotion: string }) => Promise<Answer>;
+  /** The task, below the side to move. */
+  prompt: (card: Card) => ReactNode;
+  /** Further actions on the card, beside the next button. */
+  actions?: (card: Card) => ReactNode;
+  /**
+   * Whether the owner may delete cards here.
+   *
+   * Not for cards that are rebuilt from something else, which would only come
+   * back on the next visit.
+   */
+  removable?: boolean;
+}
+
+type Phase =
+  | { step: "ask"; error: string | null }
+  | { step: "judging"; fen: string; uci: string }
+  | {
+      step: "answered";
+      answer: Answer;
+      fen: string;
+      uci: string;
+      /** For a wrong answer: whether the board shows the solution or the move played. */
+      showSolution: boolean;
+    };
+
+const ASK: Phase = { step: "ask", error: null };
+
+function afterMove(fen: string, uci: string): string {
+  const board = new Chess(fen);
+  board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+  return board.fen();
+}
+
+/** "3. Nf6" for White, "3… Nf6" for Black, as move numbers are written. */
+export function numbered(fen: string, san: string): string {
+  const [, side, , , , fullmove] = fen.split(" ");
+  return `${fullmove}${side === "w" ? "." : "…"} ${san}`;
 }
 
 /**
- * Work through a queue of mistake cards, one position at a time.
+ * Work through a queue of cards, one position at a time.
  *
  * Every answer is written as soon as it is judged, so leaving halfway keeps
  * what was done. A card answered wrong comes back once at the end of the
- * session — the scheduler has it due again shortly anyway, and solving it
- * right after seeing the answer is part of learning it.
+ * session — the scheduler has it due again shortly anyway, and getting it
+ * right just after seeing the answer is part of learning it.
+ *
+ * What a card asks and how an answer is judged belong to its kind; the
+ * session only runs the queue.
  */
-export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
-  // Held only while training, so the background analysis carries on while the
-  // overview is open and pauses while the engine is needed to judge answers.
-  const engine = useInteractiveEngine();
-
-  const [queue, setQueue] = useState<readonly TrainingCard[]>(cards);
+export function TrainingSession<Card extends SessionCard>({
+  cards,
+  onFinish,
+  judge,
+  prompt,
+  actions,
+  removable = false,
+}: TrainingSessionProps<Card>) {
+  const [queue, setQueue] = useState<readonly Card[]>(cards);
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>(ASK);
   const [result, setResult] = useState<SessionResult>({ solved: 0, missed: 0 });
@@ -85,23 +116,28 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
 
   const card = queue[index];
 
-  const next = useCallback(() => {
-    attempt.current += 1;
-    if (index + 1 >= queue.length) {
-      onFinish(result);
-      return;
-    }
-    setIndex(index + 1);
-    setPhase(ASK);
-  }, [index, queue.length, onFinish, result]);
+  const advance = useCallback(
+    (length: number) => {
+      attempt.current += 1;
+      if (index + 1 >= length) {
+        onFinish(result);
+        return;
+      }
+      setIndex(index + 1);
+      setPhase(ASK);
+    },
+    [index, onFinish, result],
+  );
+
+  const next = useCallback(() => advance(queue.length), [advance, queue.length]);
 
   async function answer(move: { from: string; to: string; promotion: string }, fen: string, uci: string) {
     const token = ++attempt.current;
     setPhase({ step: "judging", fen, uci });
 
-    let verdict: Verdict;
+    let judged: Answer;
     try {
-      verdict = await judgeMove(engine, card, move);
+      judged = await judge(card, move);
     } catch {
       if (token === attempt.current) {
         setPhase({ step: "ask", error: "The move could not be checked. Try it again." });
@@ -110,21 +146,20 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
     }
     if (token !== attempt.current) return;
 
-    const correct = verdict.outcome !== "wrong";
-    await recordReview(card.id, correct ? "good" : "again", Date.now());
+    await recordReview(card.id, judged.correct ? "good" : "again", Date.now());
     if (token !== attempt.current) return;
 
     if (!seen.current.has(card.id)) {
       seen.current.add(card.id);
       setResult((counts) =>
-        correct
+        judged.correct
           ? { ...counts, solved: counts.solved + 1 }
           : { ...counts, missed: counts.missed + 1 },
       );
-      if (!correct) setQueue((current) => [...current, card]);
+      if (!judged.correct) setQueue((current) => [...current, card]);
     }
 
-    setPhase({ step: "answered", verdict, fen, uci, showSolution: !correct });
+    setPhase({ step: "answered", answer: judged, fen, uci, showSolution: !judged.correct });
   }
 
   function playMove(from: string, to: string): boolean {
@@ -149,13 +184,7 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
     // A removed card is not trained again, even if it was queued a second time.
     const rest = queue.filter((queued, position) => position <= index || queued.id !== card.id);
     setQueue(rest);
-    attempt.current += 1;
-    if (index + 1 >= rest.length) {
-      onFinish(result);
-      return;
-    }
-    setIndex(index + 1);
-    setPhase(ASK);
+    advance(rest.length);
   }
 
   useEffect(() => {
@@ -175,23 +204,17 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
   if (!card) return null;
 
   const orientation = card.fen.split(" ")[1] === "w" ? "white" : "black";
-  const solutionFen = afterMove(card.fen, card.bestUci);
 
   let board: { fen: string; lastMoveUci: string | null; symbol: MoveSymbol | null };
   if (phase.step === "ask") {
     board = { fen: card.fen, lastMoveUci: card.previousUci, symbol: null };
   } else if (phase.step === "judging") {
     board = { fen: phase.fen, lastMoveUci: phase.uci, symbol: null };
-  } else if (phase.verdict.outcome === "wrong" && phase.showSolution) {
-    board = { fen: solutionFen, lastMoveUci: card.bestUci, symbol: "!" };
-  } else if (phase.verdict.outcome === "wrong") {
-    board = {
-      fen: phase.fen,
-      lastMoveUci: phase.uci,
-      symbol: SYMBOL_FOR_WRONG[phase.verdict.quality],
-    };
+  } else if (phase.showSolution && phase.answer.solutionUci) {
+    const uci = phase.answer.solutionUci;
+    board = { fen: afterMove(card.fen, uci), lastMoveUci: uci, symbol: "!" };
   } else {
-    board = { fen: phase.fen, lastMoveUci: phase.uci, symbol: "!" };
+    board = { fen: phase.fen, lastMoveUci: phase.uci, symbol: phase.answer.playedSymbol };
   }
 
   return (
@@ -217,14 +240,8 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
         </p>
 
         <div className="flex flex-col gap-1">
-          <p className="font-medium">
-            {orientation === "white" ? "White" : "Black"} to move
-          </p>
-          <p className="text-muted-foreground text-sm">
-            In your game {card.gameLabel} you played{" "}
-            <span className="text-foreground font-medium">{numbered(card, card.playedSan)}</span>
-            {card.quality === "blunder" ? " — a blunder." : " — a mistake."} Find a better move.
-          </p>
+          <p className="font-medium">{orientation === "white" ? "White" : "Black"} to move</p>
+          <div className="text-muted-foreground text-sm">{prompt(card)}</div>
         </div>
 
         {phase.step === "ask" && phase.error ? (
@@ -241,12 +258,27 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
         ) : null}
 
         {phase.step === "answered" ? (
-          <Feedback
-            card={card}
-            verdict={phase.verdict}
-            showSolution={phase.showSolution}
-            onToggle={() => setPhase({ ...phase, showSolution: !phase.showSolution })}
-          />
+          <div className="flex flex-col gap-2" role="status">
+            <p className="flex items-start gap-2 text-sm">
+              {phase.answer.correct ? (
+                <Check className="text-outcome-win mt-0.5 size-4 shrink-0" aria-hidden />
+              ) : (
+                <X className="text-outcome-loss mt-0.5 size-4 shrink-0" aria-hidden />
+              )}
+              <span>{phase.answer.message}</span>
+            </p>
+            {!phase.answer.correct && phase.answer.solutionUci ? (
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPhase({ ...phase, showSolution: !phase.showSolution })}
+                >
+                  {phase.showSolution ? "Show my move" : "Show the solution"}
+                </Button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
@@ -255,81 +287,14 @@ export function TrainingSession({ cards, onFinish }: TrainingSessionProps) {
               {index + 1 >= queue.length ? "Finish" : "Next position"}
             </Button>
           ) : null}
-          <Button variant="ghost" size="sm" asChild>
-            <Link href={`/analysis/?game=${card.gameId}`}>
-              <ExternalLink />
-              Open the game
-            </Link>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => void remove()}>
-            <Trash2 />
-            Remove card
-          </Button>
+          {actions?.(card)}
+          {removable ? (
+            <Button variant="ghost" size="sm" onClick={() => void remove()}>
+              <Trash2 />
+              Remove card
+            </Button>
+          ) : null}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function Feedback({
-  card,
-  verdict,
-  showSolution,
-  onToggle,
-}: {
-  card: TrainingCard;
-  verdict: Verdict;
-  showSolution: boolean;
-  onToggle: () => void;
-}) {
-  if (verdict.outcome === "best") {
-    return (
-      <p className="flex items-start gap-2 text-sm" role="status">
-        <Check className="text-outcome-win mt-0.5 size-4 shrink-0" aria-hidden />
-        <span>
-          <span className="font-medium">{numbered(card, verdict.san)}</span> is the move.
-        </span>
-      </p>
-    );
-  }
-
-  if (verdict.outcome === "also-good") {
-    return (
-      <p className="flex items-start gap-2 text-sm" role="status">
-        <Check className="text-outcome-win mt-0.5 size-4 shrink-0" aria-hidden />
-        <span>
-          <span className="font-medium">{numbered(card, verdict.san)}</span> works too. The
-          engine preferred <span className="font-medium">{numbered(card, card.bestSan)}</span>.
-        </span>
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2" role="status">
-      <p className="flex items-start gap-2 text-sm">
-        <X className="text-outcome-loss mt-0.5 size-4 shrink-0" aria-hidden />
-        <span>
-          {verdict.san === card.playedSan ? (
-            <>The same move as in the game. </>
-          ) : verdict.quality === "inaccuracy" ? (
-            <>
-              <span className="font-medium">{numbered(card, verdict.san)}</span> is better than
-              the game, but not enough.{" "}
-            </>
-          ) : (
-            <>
-              <span className="font-medium">{numbered(card, verdict.san)}</span> does not hold
-              either.{" "}
-            </>
-          )}
-          The move was <span className="font-medium">{numbered(card, card.bestSan)}</span>.
-        </span>
-      </p>
-      <div>
-        <Button variant="outline" size="sm" onClick={onToggle}>
-          {showSolution ? "Show my move" : "Show the solution"}
-        </Button>
       </div>
     </div>
   );

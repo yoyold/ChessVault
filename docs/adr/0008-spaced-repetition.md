@@ -1,4 +1,4 @@
-# ADR 0008 — Spaced repetition and training from one's own mistakes
+# ADR 0008 — Spaced repetition for mistakes and openings
 
 Status: accepted
 
@@ -57,13 +57,29 @@ but their schedule is kept.
 since the last pass, tracked by a per-device watermark in localStorage. A
 device behind the watermark only re-reads games whose cards it already has.
 
-**New cards per day: ten,** blunders first and recent games first. The first
-analysis of a collection turns up hundreds of positions at once, and without
-a limit they would bury the reviews.
+**Opening cards** are the positions in a repertoire where the owner is to
+move, one per position, with the prepared moves as answers. Any prepared
+move counts, since an alternative the owner prepared is part of the
+repertoire. Answers are judged against the repertoire, not the engine:
+the point is to know one's own choices. The repertoire stays the source of
+truth, so the cards are rebuilt from it in full on every visit to the
+trainer. It holds hundreds of moves, not millions, and an edit anywhere can
+change what is reachable. A position that leaves the repertoire loses its
+card. A card whose answers changed starts over, because what was learned
+for it is now the wrong move. Each card carries the shortest line to its
+position, found in one breadth-first pass, so transpositions are asked once.
+
+**New cards per day: ten per deck.** Mistakes come blunders first and recent
+games first; openings come shallowest first. The first analysis of a
+collection turns up hundreds of positions at once, and without a limit they
+would bury the reviews.
 
 ## Consequences
 
-- The opening trainer adds a card kind to the same table and scheduler.
+- Both trainers share the table, the scheduler and the session; a further
+  kind of card only brings its own way of building and judging cards.
+- Removing a card is offered only for mistakes. An opening card would come
+  back on the next visit; it goes by removing the move from the repertoire.
 - A card removed by the owner comes back if its game is analysed again at a
   depth that still finds the mistake. That is acceptable: the new analysis has
   reconsidered it.

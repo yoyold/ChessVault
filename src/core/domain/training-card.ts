@@ -1,6 +1,7 @@
 import type { Score } from "@/core/analysis/types";
 import type { PositionKey } from "@/core/chess/position-key";
 import type { ReviewState } from "@/core/training/scheduler";
+import type { Color } from "./game";
 
 /**
  * A position from the owner's own games where they went wrong, to be solved.
@@ -45,10 +46,46 @@ export interface MistakeCardContent {
   moveNumber: number;
 }
 
-export interface TrainingCard extends MistakeCardContent, ReviewState {
-  createdAt: number;
+/**
+ * A position from the owner's opening repertoire where they are to move.
+ *
+ * Built from the repertoire, which stays the source of truth: the card follows
+ * it, and goes when the position leaves the repertoire.
+ */
+export interface OpeningCardContent {
+  kind: "opening";
+  /** The repertoire and the position — one card per decision to know. */
+  id: string;
+  color: Color;
+  /** The position to answer, with the owner to move. */
+  fen: string;
+  positionKey: PositionKey;
+  /** The last move of the line, in coordinates, so the board can show it. */
+  previousUci: string | null;
+  /** The shortest prepared line from the starting position, in SAN. */
+  line: string[];
+  /**
+   * The owner's prepared moves here, in SAN, main line first.
+   *
+   * Any of them is a right answer: an alternative the owner prepared is part
+   * of the repertoire, not a mistake.
+   */
+  answers: string[];
 }
+
+export type TrainingCardContent = MistakeCardContent | OpeningCardContent;
+
+/** A card's content with its place in the schedule. */
+export type TrainingCard<Content extends TrainingCardContent = TrainingCardContent> = Content &
+  ReviewState & { createdAt: number };
+
+export type MistakeCard = TrainingCard<MistakeCardContent>;
+export type OpeningCard = TrainingCard<OpeningCardContent>;
 
 export function mistakeCardId(positionKey: PositionKey, playedSan: string): string {
   return `mistake:${positionKey}:${playedSan}`;
+}
+
+export function openingCardId(color: Color, positionKey: PositionKey): string {
+  return `opening:${color}:${positionKey}`;
 }
