@@ -14,6 +14,36 @@ import type { SessionResult } from "./training-session";
  */
 export const NEW_PER_DAY = 10;
 
+export interface DeckSummary<Card> {
+  /** The cards to work through now: due reviews, then today's new ones. */
+  queue: Card[];
+  dueReviews: number;
+  newToday: number;
+  /** Cards seen before and not yet due again. */
+  learning: number;
+  /** New cards beyond today's allowance. */
+  waitingNew: number;
+}
+
+/** Where a deck stands at a moment, as the overview and the dashboard show it. */
+export function summariseDeck<Card extends ReviewState>(
+  cards: readonly Card[],
+  now: number,
+  newOrder: (a: Card, b: Card) => number,
+): DeckSummary<Card> {
+  const queue = buildQueue(cards, now, { newPerDay: NEW_PER_DAY, newOrder });
+  const dueReviews = queue.filter((card) => !isNew(card)).length;
+  const newToday = queue.length - dueReviews;
+
+  return {
+    queue,
+    dueReviews,
+    newToday,
+    learning: cards.filter((card) => !isNew(card) && !isDue(card, now)).length,
+    waitingNew: cards.filter(isNew).length - newToday,
+  };
+}
+
 /** How often the overview looks again for cards that have come due. */
 const CLOCK_MS = 60 * 1000;
 
@@ -63,11 +93,11 @@ export function TrainingDeck<Card extends ReviewState>({
 
   if (!cards) return <Skeleton className="h-40" />;
 
-  const queue = buildQueue(cards, now, { newPerDay: NEW_PER_DAY, newOrder });
-  const dueReviews = queue.filter((card) => !isNew(card)).length;
-  const newToday = queue.length - dueReviews;
-  const waitingNew = cards.filter(isNew).length - newToday;
-  const learning = cards.filter((card) => !isNew(card) && !isDue(card, now)).length;
+  const { queue, dueReviews, newToday, learning, waitingNew } = summariseDeck(
+    cards,
+    now,
+    newOrder,
+  );
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">

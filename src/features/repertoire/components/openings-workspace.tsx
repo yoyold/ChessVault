@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Color } from "@/core/domain/game";
 import { cn } from "@/lib/utils";
 import { OpeningTrainer } from "@/features/training/components/opening-trainer";
@@ -27,8 +28,16 @@ const TABS: { id: Tab; label: string }[] = [
  * again should not silently change which repertoire is being edited.
  */
 export function OpeningsWorkspace() {
-  const [color, setColor] = useState<Color>("white");
-  const [tab, setTab] = useState<Tab>("repertoire");
+  // Where to start may come from a link — the dashboard sends training
+  // straight to the side that has positions due. Only the starting point:
+  // switching tabs afterwards is local and does not touch the URL.
+  const params = useSearchParams();
+  const [color, setColor] = useState<Color>(() =>
+    params.get("color") === "black" ? "black" : "white",
+  );
+  const [tab, setTab] = useState<Tab>(
+    () => TABS.find((entry) => entry.id === params.get("tab"))?.id ?? "repertoire",
+  );
 
   return (
     <div className="flex flex-col gap-4">

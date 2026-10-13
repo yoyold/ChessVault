@@ -1,9 +1,8 @@
-import { DatabaseStats } from "@/features/games/components/database-stats";
-import { ImportCard } from "@/features/games/components/import-card";
+import { Dashboard } from "@/features/dashboard/components/dashboard";
 
 export default function OverviewPage() {
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-8">
+    <div className="mx-auto flex max-w-5xl flex-col gap-8">
       <header>
         <h1 className="text-2xl font-semibold">Overview</h1>
         <p className="text-muted-foreground mt-1 text-sm">
@@ -11,8 +10,7 @@ export default function OverviewPage() {
         </p>
       </header>
 
-      <DatabaseStats />
-      <ImportCard />
+      <Dashboard />
     </div>
   );
 }
