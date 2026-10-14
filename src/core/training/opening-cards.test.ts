@@ -4,7 +4,6 @@ import { positionKey } from "@/core/chess/position-key";
 import type { RepertoireMove } from "@/core/domain/repertoire";
 import {
   compareNewOpenings,
-  formatLine,
   judgeOpeningMove,
   openingCards,
 } from "./opening-cards";
@@ -113,12 +112,6 @@ describe("compareNewOpenings", () => {
   });
 });
 
-describe("formatLine", () => {
-  it("numbers White's moves", () => {
-    expect(formatLine(["e4", "c5", "Nf3"])).toBe("1. e4 c5 2. Nf3");
-    expect(formatLine([])).toBe("");
-  });
-});
 
 describe("judgeOpeningMove", () => {
   // After 1.e4 c5, with 2.Nf3 as the main line and 2.c3 prepared too.

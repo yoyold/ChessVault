@@ -5,9 +5,9 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { uciFromSan } from "@/core/chess/legal-moves";
 import type { Color } from "@/core/domain/game";
 import type { OpeningCard } from "@/core/domain/training-card";
+import { formatLine } from "@/core/chess/format-line";
 import {
   compareNewOpenings,
-  formatLine,
   judgeOpeningMove,
   type OpeningVerdict,
 } from "@/core/training/opening-cards";

@@ -198,6 +198,7 @@ export async function saveGame(
               id: existing.id,
               tags: existing.tags,
               notes: existing.notes,
+              notedAt: existing.notedAt,
               importedAt: existing.importedAt,
             }
           : {}),

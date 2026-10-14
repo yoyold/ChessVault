@@ -48,6 +48,7 @@ import { saveSettings } from "@/lib/settings";
 import { useSettings } from "@/features/shell/use-settings";
 import { useShortcut } from "@/features/shell/use-shortcut";
 import { AnalysisBoard } from "./analysis-board";
+import { PositionNoteEditor } from "@/features/notes/components/position-note-editor";
 import { AnnotationEditor } from "./annotation-editor";
 import { EditDetailsDialog } from "./edit-details-dialog";
 import { useInteractiveEngine } from "../background/analysis-provider";
@@ -60,10 +61,17 @@ import { GameHeader } from "./game-header";
 import { GameReportSummary } from "./game-report-summary";
 import { MoveList } from "./move-list";
 
-export function AnalysisView({ gameId }: { gameId: number }) {
+export interface AnalysisViewProps {
+  gameId: number;
+  /** The mainline ply to open at, as a link to a position in the game asks. */
+  initialPly?: number;
+}
+
+export function AnalysisView({ gameId, initialPly = 0 }: AnalysisViewProps) {
   const engine = useInteractiveEngine();
 
-  const [path, setPath] = useState<number[]>([]);
+  // A ply past the end of the game is clamped with every other path below.
+  const [path, setPath] = useState<number[]>(() => Array(Math.max(0, initialPly)).fill(0));
   const [settings, setSettings] = useState<EngineSettings>({ depth: 16, multiPv: 3 });
   const { playerNames, focusMode } = useSettings();
 
@@ -432,6 +440,8 @@ export function AnalysisView({ gameId }: { gameId: number }) {
               : undefined
           }
         />
+
+        <PositionNoteEditor positionKey={current.key} />
 
         {alternatives.length > 0 ? (
           <section className="flex flex-wrap items-center gap-2 text-sm">

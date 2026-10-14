@@ -4,6 +4,11 @@ import { getSettings, resetSettingsCache, saveSettings } from "@/lib/settings";
 import { importPgn } from "@/features/games/import/import-games";
 import { fakeImportWorker } from "@/features/games/import/fake-import-worker";
 import { workerIndexer } from "@/features/games/import/worker-parser";
+import {
+  getAllNotes,
+  saveGameNotes,
+  savePositionNote,
+} from "@/persistence/repositories/notes-repository";
 import { saveEvaluation } from "@/persistence/repositories/evaluation-repository";
 import { addRepertoireMove } from "@/persistence/repositories/repertoire-repository";
 import { positionKeyFromFen } from "@/core/chess/position-key";
@@ -203,6 +208,24 @@ describe("rebuilding the position index on restore", () => {
     expect(await db.positions.get(START_KEY)).toMatchObject({ notes: "Every game starts here" });
     // The annotated start position is still linked to both games.
     expect(await db.gamePositions.where("key").equals(START_KEY).count()).toBe(2);
+  });
+
+  it("brings every note back to the notes page", async () => {
+    await seed();
+    await savePositionNote(START_KEY, { notes: "Every game starts here", tags: ["start"] }, 10);
+    const [game] = await db.games.toArray();
+    await saveGameNotes(game.id as number, "Won on time", 20);
+    const snapshot = await createSnapshot("Laptop");
+
+    await clearAll();
+    await restoreSnapshot(JSON.parse(JSON.stringify(snapshot)));
+
+    const notes = await getAllNotes();
+    expect(notes.positions).toEqual([
+      expect.objectContaining({ key: START_KEY, notes: "Every game starts here", notedAt: 10 }),
+    ]);
+    expect(notes.games.map((entry) => entry.game.notes)).toEqual(["Won on time"]);
+    expect(notes.repertoire.map((entry) => entry.move.note)).toEqual(["my main line"]);
   });
 
   it("rebuilds through the worker, and lets it go afterwards", async () => {

@@ -5,13 +5,13 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Cpu, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
+import { TagEditor } from "@/components/tag-editor";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { db } from "@/persistence/db";
 import { deleteGame, getFullGame } from "@/persistence/repositories/game-repository";
+import { saveGameNotes } from "@/persistence/repositories/notes-repository";
 
 interface GameDetailProps {
   gameId: number;
@@ -61,7 +61,7 @@ export function GameDetail({ gameId, onClose, onDeleted }: GameDetailProps) {
         <Field label="Moves" value={String(Math.ceil(record.plyCount / 2))} />
       </dl>
 
-      <TagEditor gameId={gameId} tags={record.tags} />
+      <GameTags gameId={gameId} tags={record.tags} />
       {/*
         Keyed by game so opening a different game remounts the editor with that
         game's notes. Resetting the draft in an effect instead would clobber
@@ -111,7 +111,7 @@ async function saveTags(gameId: number, tags: string[]) {
 }
 
 async function saveNotes(gameId: number, notes: string) {
-  await db.games.update(gameId, { notes, updatedAt: Date.now() });
+  await saveGameNotes(gameId, notes, Date.now());
 }
 
 function Field({ label, value }: { label: string; value: string | null }) {
@@ -125,46 +125,11 @@ function Field({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-function TagEditor({ gameId, tags }: { gameId: number; tags: string[] }) {
-  const [draft, setDraft] = useState("");
-
+function GameTags({ gameId, tags }: { gameId: number; tags: string[] }) {
   return (
     <section>
       <h3 className="mb-2 text-sm font-medium">Tags</h3>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {tags.map((tag) => (
-          <Badge key={tag} variant="secondary" className="gap-1 py-1 pr-1 pl-2.5">
-            {tag}
-            <button
-              type="button"
-              aria-label={`Remove tag ${tag}`}
-              className="hover:bg-background/60 rounded p-0.5"
-              onClick={() => void saveTags(gameId, tags.filter((entry) => entry !== tag))}
-            >
-              <X className="size-3" />
-            </button>
-          </Badge>
-        ))}
-
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const trimmed = draft.trim();
-            if (trimmed !== "" && !tags.includes(trimmed)) void saveTags(gameId, [...tags, trimmed]);
-            setDraft("");
-          }}
-        >
-          <Input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add tag"
-            aria-label="Add tag"
-            className="h-8 w-32"
-          />
-        </form>
-      </div>
+      <TagEditor tags={tags} onChange={(next) => void saveTags(gameId, next)} />
     </section>
   );
 }

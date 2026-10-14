@@ -369,6 +369,56 @@ export class ChessVaultDatabase extends Dexie {
             delete game.searchTokens;
           });
       });
+
+    if (upToVersion < 9) return;
+
+    /**
+     * Version 9 — find what the owner wrote without reading everything else.
+     *
+     * `notedAt` is set only on positions and games that carry notes, and
+     * IndexedDB leaves a record out of an index when the field is missing. The
+     * index is therefore exactly the annotated records, newest first — what
+     * the notes page lists — however large the collection around them grows.
+     * Without it, finding a dozen notes meant reading every position of every
+     * game.
+     */
+    this.version(9)
+      .stores({
+        positions: "key, firstSeenAt, sideToMove, *tags, notedAt",
+        games: [
+          "++id",
+          "contentHash",
+          "importedAt",
+          "dateIso",
+          "eco",
+          "opening",
+          "result",
+          "playerColor",
+          "white",
+          "black",
+          "event",
+          "timeControl",
+          "opponent",
+          "opponentElo",
+          "*tags",
+          "[playerColor+result]",
+          "notedAt",
+        ].join(", "),
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table<PositionRecord, string>("positions")
+          .filter((position) => position.notes !== "" || position.tags.length > 0)
+          .modify((position) => {
+            position.notedAt = position.firstSeenAt;
+          });
+        await tx
+          .table<GameRecord, number>("games")
+          .filter((game) => game.notes.trim() !== "")
+          .modify((game) => {
+            game.notedAt = game.updatedAt;
+          });
+      });
   }
 }
 

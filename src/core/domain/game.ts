@@ -89,6 +89,14 @@ export interface GameRecord {
 
   tags: string[];
   notes: string;
+  /**
+   * When the notes were last written, while there are any.
+   *
+   * Absent on a game without notes, which keeps it out of the index on this
+   * field: the notes page lists the few games that have notes without
+   * reading all of them.
+   */
+  notedAt?: number;
 
   plyCount: number;
 

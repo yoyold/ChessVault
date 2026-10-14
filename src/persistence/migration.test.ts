@@ -1,3 +1,4 @@
+import type { PositionKey } from "@/core/chess/position-key";
 import { describe, expect, it } from "vitest";
 import Dexie from "dexie";
 import { ChessVaultDatabase } from "./db";
@@ -292,6 +293,33 @@ describe("version 7 to 8", () => {
     expect(db.games.schema.indexes.map((index) => index.name)).not.toContain("searchTokens");
     // Everything else about the game is still there.
     expect(await db.games.get(1)).toMatchObject({ tags: ["reviewed"], notes: "note 0" });
+
+    db.close();
+  });
+});
+
+describe("version 8 to 9", () => {
+  it("indexes the games and positions that carry notes, and only those", async () => {
+    const name = uniqueName();
+    await seedLegacyDatabase(name, 2);
+    const legacy = openLegacyDatabase(name);
+    await legacy.open();
+    // Every legacy game has notes; this one has them taken away.
+    await legacy.table("games").update(2, { notes: "" });
+    await legacy.table("positions").bulkAdd([
+      { key: "k1", sideToMove: "w", notes: "An idea", tags: [], firstSeenAt: 5 },
+      { key: "k2", sideToMove: "b", notes: "", tags: ["endgame"], firstSeenAt: 6 },
+      { key: "k3", sideToMove: "w", notes: "", tags: [], firstSeenAt: 7 },
+    ]);
+    legacy.close();
+
+    const db = new ChessVaultDatabase(name);
+    await db.open();
+
+    expect(await db.games.where("notedAt").above(0).primaryKeys()).toEqual([1]);
+    expect((await db.games.get(1))?.notedAt).toBe(1_700_000_000_000);
+    expect(await db.positions.where("notedAt").above(0).primaryKeys()).toEqual(["k1", "k2"]);
+    expect(await db.positions.get("k3" as PositionKey)).not.toHaveProperty("notedAt");
 
     db.close();
   });

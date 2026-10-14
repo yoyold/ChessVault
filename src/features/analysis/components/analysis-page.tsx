@@ -28,5 +28,16 @@ export function AnalysisPage() {
     );
   }
 
-  return <AnalysisView gameId={parsed} />;
+  // Optional: where in the game to open, for links to a position in it.
+  const ply = Number(searchParams.get("ply"));
+
+  return (
+    <AnalysisView
+      // Keyed by game and ply, so following a link to another position in the
+      // same game moves there instead of keeping the current one.
+      key={`${parsed}:${searchParams.get("ply") ?? ""}`}
+      gameId={parsed}
+      initialPly={Number.isInteger(ply) && ply > 0 ? ply : 0}
+    />
+  );
 }

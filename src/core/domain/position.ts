@@ -30,6 +30,14 @@ export interface PositionRecord {
   /** User annotations. Kept on the position so they survive deleting the game that introduced it. */
   notes: string;
   tags: string[];
+  /**
+   * When the notes or tags were last written, while there are any.
+   *
+   * Absent on an unannotated position — nearly all of them — which keeps it
+   * out of the index on this field, so annotated positions are found without
+   * reading the rest.
+   */
+  notedAt?: number;
 
   firstSeenAt: number;
 }
