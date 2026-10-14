@@ -41,6 +41,9 @@ earlier draft of this module reimplemented the check; it was removed once
 measured against the library, because redundant logic in the hottest path of
 import costs throughput and invites divergence.
 
+Moves are now replayed with chessops, which normalises the same way; see ADR
+0010.
+
 The behaviour is consequently an *assumption*, not an implementation detail we
 own. `position-key.test.ts` asserts it explicitly — spurious square, legal
 capture, and pinned capturer — so that a change in library behaviour fails the

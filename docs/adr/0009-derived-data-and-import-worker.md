@@ -55,8 +55,8 @@ since part of the file is already stored.
   rebuild runs in the same worker as import, a chunk of games at a time, so
   the page stays usable meanwhile; without a worker it runs on the page.
   Measured with 940 games: a 2.5 MB backup instead of 10.2 MB, restored in
-  about 20 seconds, almost all of it parsing. That is a quarter of an hour at
-  the 50,000-game target, and the reason to make parsing faster before then.
+  about 20 seconds, almost all of it parsing. Parsing has since become about
+  13 times faster (ADR 0010); the same restore takes about 5 seconds.
 - The restored rows are written in chunks inside the one transaction. Each
   add is copied into IndexedDB on the main thread when it is issued, and
   issuing a whole collection at once held the page for seconds.

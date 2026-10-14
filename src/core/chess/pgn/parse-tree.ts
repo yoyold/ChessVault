@@ -1,5 +1,10 @@
 import { Chess } from "chess.js";
+import { castlingSide, Chess as Position } from "chessops/chess";
+import { makeFen, parseFen } from "chessops/fen";
 import { parsePgn, type ChildNode, type PgnNodeData } from "chessops/pgn";
+import { makeSanAndPlay, parseSan } from "chessops/san";
+import type { NormalMove } from "chessops/types";
+import { charToRole, kingCastlesTo, makeUci, parseSquare } from "chessops/util";
 import {
   positionKeyFromEngineFen,
   type PositionKey,
@@ -63,12 +68,14 @@ export interface ParsedGameTree {
  * comments — which cost roughly a third of the games in a real annotated
  * collection.
  *
- * **chess.js replays the moves.** Position keys are derived from its FEN
- * output, and they are the identity under which positions, evaluations and
- * notes are already stored. Deriving them from a different library risks a
- * subtle disagreement — over the en-passant field in particular — that would
- * silently split identical positions and orphan stored evaluations. Keeping the
- * generator unchanged removes that risk entirely.
+ * **chessops replays the moves**, several times faster than chess.js, which
+ * made replaying most of the cost of an import. Position keys are the
+ * identity under which positions, evaluations and notes are stored, so the
+ * switch had to leave every one of them as chess.js wrote it. It does: both
+ * write the en-passant square only when the capture is legal, pins included,
+ * and `parse-tree.test.ts` holds the cases where that matters. chess.js still
+ * sets up the starting position, normalising a FEN from the file, and reads
+ * any move chessops cannot, so no game that imported before is refused now.
  *
  * @throws PgnParseError if the file yields no game, or the mainline is illegal.
  */
@@ -87,11 +94,12 @@ export function parseGameTree(pgn: string): ParsedGameTree {
   const startFen = startingFen(headers);
 
   const board = createBoard(startFen);
+  const fen = board.fen();
 
   const root: TreeNode = {
     ply: 0,
-    fen: board.fen(),
-    key: positionKeyFromEngineFen(board.fen()),
+    fen,
+    key: positionKeyFromEngineFen(fen),
     san: null,
     uci: null,
     sideToMove: board.turn(),
@@ -101,7 +109,8 @@ export function parseGameTree(pgn: string): ParsedGameTree {
   };
 
   const dropped = { count: 0 };
-  buildChildren(root, games[0].moves.children, dropped, true);
+  const position = Position.fromSetup(parseFen(fen).unwrap()).unwrap();
+  buildChildren(root, position, games[0].moves.children, dropped, true);
 
   return { headers, root, droppedVariations: dropped.count };
 }
@@ -125,22 +134,33 @@ function createBoard(fen: string | undefined): Chess {
 /**
  * Attach chessops' children to a node, replaying each through chess.js.
  *
+ * The first child continues on the board it is handed, which stands at the
+ * parent's position; only alternatives get a board of their own, set up from
+ * the parent's FEN. Setting up a board is the expensive part of replaying a
+ * move, and doing it for every ply made it most of the cost of an import —
+ * while variations, the only moves that need it, are a small share of any
+ * game.
+ *
+ * @param board Standing at the parent's position. Moved on by the first child.
  * @param isMainline Whether this branch is the game's actual continuation. An
  *   illegal move there is a broken game; in a variation it is a broken sideline
  *   and only that branch is discarded.
  */
 function buildChildren(
   parent: TreeNode,
+  parentBoard: Position,
   children: ChildNode<PgnNodeData>[],
   dropped: { count: number },
   isMainline: boolean,
 ): void {
-  children.forEach((child, index) => {
-    // Each branch replays from the parent position; siblings must not inherit
-    // the moves of the branch explored before them.
-    const board = createBoard(parent.fen);
+  // Alternatives are set up before the first child moves the parent's board
+  // on: each replays from the parent position, and must not inherit the moves
+  // of the branch explored before it.
+  const boards = children.map((_, index) => (index === 0 ? parentBoard : parentBoard.clone()));
 
-    const move = tryMove(board, child.data.san);
+  children.forEach((child, index) => {
+    const board = boards[index];
+    const move = playSan(board, child.data.san);
 
     if (!move) {
       if (isMainline && index === 0) {
@@ -151,13 +171,14 @@ function buildChildren(
       return;
     }
 
+    const fen = makeFen(board.toSetup());
     const node: TreeNode = {
       ply: parent.ply + 1,
-      fen: board.fen(),
-      key: positionKeyFromEngineFen(board.fen()),
+      fen,
+      key: positionKeyFromEngineFen(fen),
       san: move.san,
-      uci: move.lan,
-      sideToMove: board.turn(),
+      uci: move.uci,
+      sideToMove: board.turn === "white" ? "w" : "b",
       // `startingComments` sit before the move in the source, `comments` after.
       // Both describe this move, so they are kept together in reading order.
       comments: [...(child.data.startingComments ?? []), ...(child.data.comments ?? [])],
@@ -167,16 +188,53 @@ function buildChildren(
 
     parent.children.push(node);
 
-    buildChildren(node, child.children, dropped, isMainline && index === 0);
+    buildChildren(node, board, child.children, dropped, isMainline && index === 0);
   });
 }
 
-function tryMove(board: Chess, san: string) {
+/**
+ * Play a move given in SAN, returning it as written in SAN and UCI.
+ *
+ * The SAN is written afresh rather than echoed from the file, so the same
+ * move is always spelled the same way. Castling is reported as the king's own
+ * move, `e1g1`, not as chessops' king-takes-rook.
+ */
+function playSan(board: Position, san: string): { san: string; uci: string } | null {
+  const move = parseSan(board, san) ?? readWithChessJs(board, san);
+  if (!move || !("from" in move)) return null;
+
+  const side = castlingSide(board, move);
+  const uci = makeUci(side ? { ...move, to: kingCastlesTo(board.turn, side) } : move);
+
+  return { san: makeSanAndPlay(board, move), uci };
+}
+
+/**
+ * Read a move chessops' SAN parser does not accept, such as castling written
+ * with zeros. chess.js is more forgiving with notation and was the parser every
+ * stored game went through, so anything it accepted still imports.
+ */
+function readWithChessJs(board: Position, san: string): NormalMove | undefined {
+  let played;
   try {
-    return board.move(san);
+    played = new Chess(makeFen(board.toSetup())).move(san);
   } catch {
-    return null;
+    return undefined;
   }
+
+  const from = parseSquare(played.from);
+  const to = parseSquare(played.to);
+  if (from === undefined || to === undefined) return undefined;
+
+  // chessops moves the king onto its own rook to castle.
+  const side = played.isKingsideCastle() ? "h" : played.isQueensideCastle() ? "a" : null;
+  const move: NormalMove = {
+    from,
+    to: side ? (board.castles.rook[board.turn][side] ?? to) : to,
+    promotion: played.promotion ? charToRole(played.promotion) : undefined,
+  };
+
+  return board.isLegal(move) ? move : undefined;
 }
 
 /** Walk the mainline: the root followed by the first child at each step. */
