@@ -52,7 +52,7 @@ jobs:
           NEXT_PUBLIC_BASE_PATH: ${{ steps.base.outputs.path }}
         run: npm run build
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
@@ -65,4 +65,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+        with:
+          # Pages sometimes takes longer than the default ten minutes to report
+          # back. Giving up then leaves the deployment open on GitHub's side,
+          # where it blocks the next one until it finally completes; waiting
+          # longer lets it finish and the queued run deploy after it.
+          timeout: 1800000
