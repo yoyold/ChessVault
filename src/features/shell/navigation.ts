@@ -39,7 +39,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/games", label: "Games", icon: Library, available: true },
   { href: "/analysis", label: "Analysis", icon: Cpu, available: true },
   { href: "/openings", label: "Openings", icon: GitBranch, available: true },
-  { href: "/endgames", label: "Endgames", icon: Flag, available: false },
+  { href: "/endgames", label: "Endgames", icon: Flag, available: true },
   { href: "/tactics", label: "Tactics", icon: Target, available: true },
   { href: "/notes", label: "Notes", icon: NotebookPen, available: true },
   { href: "/statistics", label: "Statistics", icon: BarChart3, available: true },

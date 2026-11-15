@@ -2,11 +2,12 @@ import Dexie from "dexie";
 import type { PositionKey } from "@/core/chess/position-key";
 import type { GameAnalysisRecord } from "@/core/domain/game-analysis";
 import type {
+  EndgameCardContent,
   MistakeCard,
   MistakeCardContent,
-  OpeningCard,
   OpeningCardContent,
   TrainingCard,
+  TrainingCardContent,
 } from "@/core/domain/training-card";
 import type { MistakeSource } from "@/core/training/mistake-cards";
 import { newReviewState, review, type Grade } from "@/core/training/scheduler";
@@ -89,29 +90,42 @@ export interface ReplaceResult extends UpsertResult {
   removed: number;
 }
 
+type ContentOfKind<Kind extends TrainingCard["kind"]> = Extract<
+  TrainingCardContent,
+  { kind: Kind }
+>;
+
 /**
- * Make the opening cards match the repertoire.
+ * Make the cards of a kind match their source, in full.
  *
- * The repertoire is the source of truth, so this is a full replacement: cards
- * for new positions are added, cards whose position left the repertoire are
- * removed, and the rest keep their schedule.
+ * For kinds built from something the owner keeps elsewhere — the repertoire,
+ * the endgame catalogue — that source is the truth: cards for new tasks are
+ * added, cards whose task is gone are removed, and the rest keep their
+ * schedule.
  *
- * Except when the answer itself changed. A card whose prepared moves are no
- * longer the same starts over: what was learned for it is now the wrong move,
- * and a long interval would leave the old one in place for months.
+ * Except when the task itself changed. Such a card starts over: what was
+ * learned for it no longer answers it, and a long interval would leave the
+ * old answer in place for months.
  */
-export async function replaceOpeningCards(
-  contents: readonly OpeningCardContent[],
+async function replaceCards<Kind extends "opening" | "endgame">(
+  kind: Kind,
+  contents: readonly ContentOfKind<Kind>[],
   now: number,
+  sameTask: (stored: CardOfKind<Kind>, next: ContentOfKind<Kind>) => boolean,
 ): Promise<ReplaceResult> {
   return db.transaction("rw", db.trainingCards, async () => {
-    const existing = new Map((await getCards("opening")).map((card) => [card.id, card]));
+    // Every card and content has an id; a generic kind hides that from the
+    // compiler, hence the widening.
+    const existing = new Map(
+      (await getCards(kind)).map((card) => [(card as TrainingCard).id, card]),
+    );
 
     let added = 0;
     let updated = 0;
-    const cards: OpeningCard[] = contents.map((content) => {
-      const current = existing.get(content.id);
-      existing.delete(content.id);
+    const cards = contents.map((content) => {
+      const { id } = content as TrainingCardContent;
+      const current = existing.get(id);
+      existing.delete(id);
 
       if (!current) {
         added += 1;
@@ -119,20 +133,52 @@ export async function replaceOpeningCards(
       }
 
       updated += 1;
-      const sameAnswers =
-        current.answers.length === content.answers.length &&
-        current.answers.every((san) => content.answers.includes(san));
-      return sameAnswers
+      return sameTask(current, content)
         ? { ...current, ...content }
         : { ...current, ...content, ...newReviewState(now) };
     });
 
-    await db.trainingCards.bulkPut(cards);
-    // Whatever is left was not in the repertoire any more.
+    await db.trainingCards.bulkPut(cards as TrainingCard[]);
+    // Whatever is left is no longer in the source.
     await db.trainingCards.bulkDelete([...existing.keys()]);
 
     return { added, updated, removed: existing.size };
   });
+}
+
+/**
+ * Make the opening cards match the repertoire. A card whose prepared moves
+ * changed starts over.
+ */
+export function replaceOpeningCards(
+  contents: readonly OpeningCardContent[],
+  now: number,
+): Promise<ReplaceResult> {
+  return replaceCards(
+    "opening",
+    contents,
+    now,
+    (stored, next) =>
+      stored.answers.length === next.answers.length &&
+      stored.answers.every((san) => next.answers.includes(san)),
+  );
+}
+
+/**
+ * Make the endgame cards match the catalogue. A drill whose position or goal
+ * changed starts over.
+ */
+export function replaceEndgameCards(
+  contents: readonly EndgameCardContent[],
+  now: number,
+): Promise<ReplaceResult> {
+  return replaceCards(
+    "endgame",
+    contents,
+    now,
+    (stored, next) =>
+      stored.fen === next.fen && JSON.stringify(stored.goal) === JSON.stringify(next.goal),
+  );
 }
 
 /**

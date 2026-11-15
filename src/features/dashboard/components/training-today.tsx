@@ -7,12 +7,15 @@ import type { Color } from "@/core/domain/game";
 import type { ReviewState } from "@/core/training/scheduler";
 import { compareNewMistakes } from "@/core/training/mistake-cards";
 import { compareNewOpenings } from "@/core/training/opening-cards";
+import { compareNewDrills } from "@/core/endgames/catalogue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBackgroundAnalysis } from "@/features/analysis/background/analysis-provider";
 import { summariseDeck, type DeckSummary } from "@/features/training/components/training-deck";
 import { syncMistakeCards } from "@/features/training/sync-mistake-cards";
 import { syncOpeningCards } from "@/features/training/sync-opening-cards";
+import { ENDGAME_NEW_PER_DAY } from "@/features/endgames/endgame-deck";
+import { syncEndgameCards } from "@/features/endgames/sync-endgame-cards";
 import { getCards } from "@/persistence/repositories/training-repository";
 
 /** How often the counts are looked at again, as cards come due. */
@@ -49,6 +52,7 @@ export function TrainingToday() {
   // with the analysis running in the panel below.
   useEffect(() => {
     void syncOpeningCards().catch(() => undefined);
+    void syncEndgameCards().catch(() => undefined);
     const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
     return () => window.clearInterval(timer);
   }, []);
@@ -58,8 +62,12 @@ export function TrainingToday() {
   }, [background.analysed]);
 
   const cards = useLiveQuery(async () => {
-    const [mistakes, openings] = await Promise.all([getCards("mistake"), getCards("opening")]);
-    return { mistakes, openings };
+    const [mistakes, openings, endgames] = await Promise.all([
+      getCards("mistake"),
+      getCards("opening"),
+      getCards("endgame"),
+    ]);
+    return { mistakes, openings, endgames };
   });
 
   if (!cards) return <Skeleton className="h-40 rounded-lg" />;
@@ -75,6 +83,12 @@ export function TrainingToday() {
     },
     openingDeck("white", summariseDeck(white, now, compareNewOpenings), white.length),
     openingDeck("black", summariseDeck(black, now, compareNewOpenings), black.length),
+    {
+      label: "Endgames",
+      href: "/endgames/",
+      summary: summariseDeck(cards.endgames, now, compareNewDrills, ENDGAME_NEW_PER_DAY),
+      total: cards.endgames.length,
+    },
   ].filter((deck) => deck.total > 0);
 
   const due = decks.reduce((sum, deck) => sum + deck.summary.queue.length, 0);
@@ -85,7 +99,7 @@ export function TrainingToday() {
         <h2 className="font-medium">Training today</h2>
         {decks.length > 0 ? (
           <span className="text-muted-foreground text-sm tabular-nums">
-            {due === 0 ? "All done" : `${due} position${due === 1 ? "" : "s"}`}
+            {due === 0 ? "All done" : `${due} to train`}
           </span>
         ) : null}
       </div>

@@ -1,5 +1,6 @@
 import type { Score } from "@/core/analysis/types";
 import type { PositionKey } from "@/core/chess/position-key";
+import type { EndgameGoal } from "@/core/endgames/catalogue";
 import type { ReviewState } from "@/core/training/scheduler";
 import type { Color } from "./game";
 
@@ -73,7 +74,22 @@ export interface OpeningCardContent {
   answers: string[];
 }
 
-export type TrainingCardContent = MistakeCardContent | OpeningCardContent;
+/**
+ * An endgame drill to play out against the engine.
+ *
+ * The drill itself — its goal and the idea behind it — lives in the
+ * catalogue; the card carries the position and goal as they were when it was
+ * made, so a drill that is later changed is recognised as a different task.
+ */
+export interface EndgameCardContent {
+  kind: "endgame";
+  id: string;
+  drillId: string;
+  fen: string;
+  goal: EndgameGoal;
+}
+
+export type TrainingCardContent = MistakeCardContent | OpeningCardContent | EndgameCardContent;
 
 /** A card's content with its place in the schedule. */
 export type TrainingCard<Content extends TrainingCardContent = TrainingCardContent> = Content &
@@ -81,6 +97,7 @@ export type TrainingCard<Content extends TrainingCardContent = TrainingCardConte
 
 export type MistakeCard = TrainingCard<MistakeCardContent>;
 export type OpeningCard = TrainingCard<OpeningCardContent>;
+export type EndgameCard = TrainingCard<EndgameCardContent>;
 
 export function mistakeCardId(positionKey: PositionKey, playedSan: string): string {
   return `mistake:${positionKey}:${playedSan}`;
@@ -88,4 +105,8 @@ export function mistakeCardId(positionKey: PositionKey, playedSan: string): stri
 
 export function openingCardId(color: Color, positionKey: PositionKey): string {
   return `opening:${color}:${positionKey}`;
+}
+
+export function endgameCardId(drillId: string): string {
+  return `endgame:${drillId}`;
 }

@@ -30,8 +30,9 @@ export function summariseDeck<Card extends ReviewState>(
   cards: readonly Card[],
   now: number,
   newOrder: (a: Card, b: Card) => number,
+  newPerDay: number = NEW_PER_DAY,
 ): DeckSummary<Card> {
-  const queue = buildQueue(cards, now, { newPerDay: NEW_PER_DAY, newOrder });
+  const queue = buildQueue(cards, now, { newPerDay, newOrder });
   const dueReviews = queue.filter((card) => !isNew(card)).length;
   const newToday = queue.length - dueReviews;
 
@@ -52,12 +53,18 @@ export interface TrainingDeckProps<Card extends ReviewState> {
   cards: readonly Card[] | undefined;
   /** Which new cards to introduce first. */
   newOrder: (a: Card, b: Card) => number;
+  /** New cards a day, where the deck's tasks take longer than a position. */
+  newPerDay?: number;
+  /** What one card is called, in the singular: "position" unless given. */
+  noun?: string;
   /** What the deck is, above the figures. */
   intro: ReactNode;
   /** Shown instead of the figures when the deck has no cards. */
   empty: ReactNode;
   /** The session over a queue, until it calls back with its result. */
   session: (queue: Card[], onFinish: (result: SessionResult) => void) => ReactNode;
+  /** More of the overview below the figures; hidden while a session runs. */
+  footer?: ReactNode;
 }
 
 /**
@@ -67,9 +74,12 @@ export interface TrainingDeckProps<Card extends ReviewState> {
 export function TrainingDeck<Card extends ReviewState>({
   cards,
   newOrder,
+  newPerDay = NEW_PER_DAY,
+  noun = "position",
   intro,
   empty,
   session,
+  footer,
 }: TrainingDeckProps<Card>) {
   const [now, setNow] = useState(() => Date.now());
   const [running, setRunning] = useState<{ queue: Card[]; startedAt: number } | null>(null);
@@ -97,7 +107,9 @@ export function TrainingDeck<Card extends ReviewState>({
     cards,
     now,
     newOrder,
+    newPerDay,
   );
+  const nouns = (count: number) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -106,7 +118,7 @@ export function TrainingDeck<Card extends ReviewState>({
       {lastResult ? (
         <p className="text-sm" role="status">
           Session done: {lastResult.solved} solved, {lastResult.missed} missed.
-          {lastResult.missed > 0 ? " Missed positions come back in a few minutes." : null}
+          {lastResult.missed > 0 ? ` Missed ${noun}s come back in a few minutes.` : null}
         </p>
       ) : null}
 
@@ -129,18 +141,20 @@ export function TrainingDeck<Card extends ReviewState>({
                 setRunning({ queue, startedAt: Date.now() });
               }}
             >
-              {queue.length === 0 ? "Nothing due" : `Train ${queue.length} positions`}
+              {queue.length === 0 ? "Nothing due" : `Train ${nouns(queue.length)}`}
             </Button>
             {queue.length === 0 ? (
               <p className="text-muted-foreground text-sm">
                 {waitingNew > 0
-                  ? `Done for today. ${Math.min(waitingNew, NEW_PER_DAY)} new positions tomorrow.`
+                  ? `Done for today. ${nouns(Math.min(waitingNew, newPerDay))} more tomorrow.`
                   : "Done for now. Reviews come back as they fall due."}
               </p>
             ) : null}
           </div>
         </>
       )}
+
+      {footer}
     </div>
   );
 }
