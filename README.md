@@ -1,5 +1,10 @@
 # ChessVault
 
+> [!IMPORTANT]
+> **This repository is archived and no longer maintained.**
+> Development continues in **[ChessVault2](https://github.com/yoyold/chessvault2)**.
+> Please open issues and pull requests there.
+
 A personal chess improvement platform: game database, engine analysis, opening
 repertoire, endgame and tactical training, and a linked knowledge base.
 
